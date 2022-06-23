@@ -1,0 +1,179 @@
+---
+title: "ARTIS S-net Overview"
+output: html_document
+date: '2022-06-21'
+author: "Jessica Gephart and Rahul Agrawal Bejarano"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+# Reset Environment to start with an empty workspace
+rm(list=ls())
+
+
+library(tidyverse)
+library(countrycode)
+library(kableExtra)
+
+# POINT THESE paths to folders and files in your local computer
+# File Path to the folder where your data lives
+datadir <- "data"
+# File Path to the folder where you want to ouput results
+outdir <- "Outputs"
+
+# File name of the data you want to use
+artis_snet_filename <- "20220616_josephbarnes_ARTIS_snet.csv"
+
+```
+
+```{r include=FALSE}
+
+artis <- read.csv(file.path(datadir, artis_snet_filename))
+```
+
+## Timeseries
+
+### Creating a timeseries line graph
+
+Below is a code sample for creating timeseries by year based on seafood product weights.
+```{r }
+# Function that creates a timeseries
+# INPUT:
+#   - df: A data frame with a Year column and Product weight
+#   x_var and y_var need to be passed in tidyverse style as variables
+#   - x_var: col variable that will be plotted on the x axis (Group by var)
+#   - y_var: col variable that will be plotted on the y axis (Summarize var)
+# OUTPUTS:
+#   - p: Timeseries plot
+create_timeseries_line <- function(df, x_var, y_var, plot_title, x_title, y_title) {
+  timeseries <- df %>%
+  group_by({{ x_var }}) %>%
+  summarize(quantity = sum({{ y_var }}))
+  
+  p <- ggplot(timeseries) +
+    geom_line(aes(x={{ x_var }}, y=quantity)) +
+    labs(x=x_title, y=y_title, title=plot_title)
+  
+  return(list(p, timeseries))
+}
+
+timeseries_results <- artis %>% 
+  create_timeseries_line(x_var=year, y_var=product_weight_t,
+                              "Timeseries of ARTIS S-net HS12", 
+                              "Year", "Quantity (tonnes)")
+
+timeseries_p <- timeseries_results[[1]]
+timeseries_df <- timeseries_results[[2]]
+
+rm(timeseries_results)
+
+plot(timeseries_p)
+
+# Use the code below to get a visual representation of the timeseries as a dataframe
+# timeseries_df %>%
+#   kable() %>%
+#   kable_styling(full_width=FALSE)
+
+```
+
+### Creating a stacked line graph based on Species, HS codes, Trade Partners
+```{r}
+# Creates a stacked graph based on a time variable and stacking variable
+# INPUTS
+#   - df: dataframe containing data to be visualized
+#   - time_var: X axis variables
+#   - stack_var: variable to create stacking groups
+#   - q_var:Y axis variable
+#   - prop_flow_cutoff: Minimum proportion cutoff, 
+#       - all groups below this cutoff get grouped into an "Other" group
+# OUTPUTS:
+#   - p: plot of a stacked timeseries
+create_stacked_graph <- function(df, time_var, stack_var, q_var, 
+                                 prop_flow_cutoff=0.05, 
+                                 plot_title="", x_title="", y_title="") {
+  
+  stacked <- df %>%
+    group_by({{ time_var }}, {{ stack_var }}) %>%
+    summarize(quantity = sum({{ q_var }})) %>%
+    ungroup() %>%
+    group_by({{ time_var }}) %>%
+    mutate(total_by_time = sum(quantity)) %>%
+    mutate(prop_flow = quantity / total_by_time) %>%
+    mutate(common_name = case_when(
+      prop_flow < prop_flow_cutoff ~ "Other",
+      TRUE ~ as.character({{ stack_var }})
+    )) %>%
+    ungroup() %>%
+    group_by({{ time_var }}, common_name) %>%
+    summarize(quantity = sum(quantity)) %>%
+    ungroup()
+  
+  year_grid <- expand_grid(common_name=unique(stacked$common_name),
+                           year=unique(stacked %>% pull({{ time_var }})))
+  
+  stacked <- stacked %>%
+    full_join(year_grid) %>%
+    mutate(quantity = case_when(
+      is.na(quantity) ~ 0,
+      TRUE ~ as.numeric(quantity)
+    ))
+  
+  p <- stacked %>%
+    ggplot() +
+    geom_area(aes(x={{ time_var }}, y=quantity, fill=common_name)) +
+    scale_fill_viridis_d() +
+    labs(x=x_title, y=y_title, title=plot_title, fill="Common Name") +
+    theme_bw()
+  
+  return(list(p, stacked))
+}
+```
+
+An example using species as the stacking group:
+```{r message=FALSE}
+
+species_stacked <- artis %>% 
+  create_stacked_graph(year, SciName, product_weight_t, 
+                            plot_title="Species breakdown over time", 
+                            x_title="Year", y_title="Quantity (tonnes)")
+
+species_p <- species_stacked[[1]]
+species_df <- species_stacked[[2]]
+
+rm(species_stacked)
+
+plot(species_p)
+```
+
+An example using hs product codes as the stacking group:
+```{r message=FALSE}
+
+hs_stacked <- artis %>% 
+       create_stacked_graph(year, hs6, product_weight_t, 
+                            plot_title="Seafood product (by HS code) over time", 
+                            x_title="Year", y_title="Quantity (tonnes)")
+
+hs_p <- hs_stacked[[1]]
+hs_df <- hs_stacked[[2]]
+
+rm(hs_stacked)
+
+plot(hs_p)
+```
+
+An example using exporter as the stacking group:
+```{r message=FALSE}
+
+exporter_stacked <- artis %>% 
+       create_stacked_graph(year, exporter_iso3c, product_weight_t, 
+                            plot_title="Exporters over time", 
+                            x_title="Year", y_title="Quantity (tonnes)")
+
+exporter_p <- exporter_stacked[[1]]
+exporter_df <- exporter_stacked[[2]]
+
+rm(exporter_stacked)
+
+plot(exporter_p)
+```
