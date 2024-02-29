@@ -448,13 +448,50 @@ p3 <- artis %>%
   labs(x = "", y = "tonnes, live weight", title = "US imports of Russian Atlantic cod via China") +
   theme_bw()
 
-p_joined <- ggarrange(p1, p2, p3, ncol = 1)
+p4 <- artis %>%
+  filter(source_country_iso3c == "RUS", exporter_iso3c == "CHN", importer_iso3c == "USA",
+         year > 1996) %>%
+  group_by(year, sciname) %>%
+  summarise(live_weight_t = sum(live_weight_t, na.rm = TRUE)) %>% 
+  filter(sciname == "melanogrammus aeglefinus") %>%
+  left_join(chn_to_usa %>%
+              select(year, sciname, min_russia, max_russia)) %>% 
+  ggplot(aes(x = year)) +
+  geom_ribbon(aes(ymin = min_russia, ymax = max_russia), fill = "#86ADA7", alpha = 0.5) +
+  geom_line(aes(y = live_weight_t)) +
+  labs(x = "", y = "tonnes, live weight", title = "US imports of Russian haddock via China") +
+  theme_bw()
+
+p5 <- artis %>%
+  filter(source_country_iso3c == "RUS", exporter_iso3c == "CHN", importer_iso3c == "USA",
+         year > 1996) %>%
+  group_by(year, sciname) %>%
+  summarise(live_weight_t = sum(live_weight_t, na.rm = TRUE)) %>% 
+  filter(sciname == "gadus macrocephalus") %>%
+  left_join(chn_to_usa %>%
+              select(year, sciname, min_russia, max_russia)) %>% 
+  ggplot(aes(x = year)) +
+  geom_ribbon(aes(ymin = min_russia, ymax = max_russia), fill = "#86ADA7", alpha = 0.5) +
+  geom_line(aes(y = live_weight_t)) +
+  labs(x = "", y = "tonnes, live weight", title = "US imports of Russian Pacific cod via China") +
+  theme_bw() 
+
+p_joined <- ggarrange(p1, p2, p3, p4, ncol = 1)
 
 ggexport(p_joined, filename = "US_species_import_range.png")
 
 # Stats
 chn_to_usa %>% 
   filter(year == 2020, 
-         sciname %in% c("gadus chalcogrammus", "gadus morhua", "oncorhynchus gorbuscha"))
+         sciname %in% c("gadus chalcogrammus", "gadus morhua", "oncorhynchus gorbuscha", "gadus macrocephalus"))
+
+consumption %>%
+  filter(consumer_iso3c == "USA", source_country_iso3c == "RUS", year %in% 2015:2019) %>%
+  group_by(sciname_hs_modified) %>% 
+  summarise(consumption_live_t = sum(consumption_live_t)) %>% 
+  arrange(desc(consumption_live_t)) %>%
+  ungroup() %>%
+  mutate(percent = 100*consumption_live_t/sum(consumption_live_t)) %>%
+  mutate(cum_percent = cumsum(percent))
 
 ```
