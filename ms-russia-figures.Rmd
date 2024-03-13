@@ -9,6 +9,9 @@ date: "2024-02-07"
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
+To do: 
+- 
+
 ```{r}
 library(tidyverse)
 library(countrycode)
@@ -65,6 +68,10 @@ consumption <- dbGetQuery(con, "SELECT * FROM complete_consumption") %>%
 
 # Production dataframe
 prod <- dbGetQuery(con, "SELECT * FROM production") %>%
+  select(-record_id) 
+
+# Product metadata dataframe
+product <- dbGetQuery(con, "SELECT * FROM products") %>%
   select(-record_id) 
 
 # Species metadata
@@ -478,4 +485,57 @@ consumption %>%
 
 ```
 
+```{r}
+# Explore spike in China's apparent consumption of Russian products
+tmp <- consumption %>% 
+  filter(source_country_iso3c == "RUS", consumer_iso3c != "RUS") %>%
+  group_by(year, consumer_iso3c) %>% 
+  summarise(consumption_live_t = sum(consumption_live_t, na.rm = TRUE))
+
+consumption %>% 
+  filter(source_country_iso3c == "RUS", consumer_iso3c == "CHN") %>%
+  group_by(year) %>% 
+  summarise(consumption_live_t = sum(consumption_live_t, na.rm = TRUE)) %>%
+  ggplot(aes(x = year, y = consumption_live_t)) +
+  geom_line() + 
+  theme_bw()
+
+tmp <- consumption %>% 
+  filter(source_country_iso3c == "RUS", consumer_iso3c == "CHN") %>%
+  group_by(year, sciname_hs_modified) %>% 
+  summarise(consumption_live_t = sum(consumption_live_t, na.rm = TRUE))
+
+prod %>% 
+  filter(iso3c == "RUS", sciname == "gadus chalcogrammus") %>%
+  group_by(year) %>%
+  summarise(live_weight_t = sum(live_weight_t)) %>%
+  ggplot(aes(x = year, y = live_weight_t)) +
+  geom_line() +
+  theme_bw()
+
+artis %>% 
+  filter(exporter_iso3c == "RUS", importer_iso3c == "CHN") %>%
+  plot_ts(artis_var = "hs6", plot.type = "filled", prop_flow_cutoff = 0.07)
+
+artis %>% 
+  filter(source_country_iso3c == "RUS", exporter_iso3c == "CHN") %>%
+  group_by(year) %>%
+  summarise(live_weight_t = sum(live_weight_t, na.rm = TRUE)) %>%
+  ggplot(aes(year, live_weight_t)) +
+  geom_line() +
+  theme_bw()
+
+artis %>% 
+  filter(source_country_iso3c == "RUS", exporter_iso3c == "CHN") %>%
+  plot_ts(artis_var = "importer_iso3c", plot.type = "filled") 
+
+
+artis %>% 
+  filter(hs6 %in% c(30379, 30380, 303429, 30499, 30510, 30520, 
+                    30530, 30549, 30569, 51191, 1400410, 140420,
+                    160419, 160430), exporter_iso3c == "CHN") %>%
+  plot_ts(artis_var = "hs6", plot.type = "filled") 
+
+  
+```
 
