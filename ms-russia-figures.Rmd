@@ -59,7 +59,7 @@ con <- dbConnect(RPostgres::Postgres(),
 dbListTables(con)
 
 # ARTIS dataframe
-artis <- dbGetQuery(con, "SELECT * FROM all_estimates_snet") %>%
+artis <- dbGetQuery(con, "SELECT * FROM snet") %>%
   select(-record_id) 
 
 # consumption dataframe
@@ -137,7 +137,7 @@ consumption <- consumption %>%
 ```{r}
 # Consumption of Russian products by sanctioning and non-sanctioning countries, colored by import path (direct vs indirect)
 # Fill version
-consumption %>%
+consumption_of_rus_p <- consumption %>%
   filter(consumer_iso3c != "RUS", 
          source_country_iso3c == "RUS") %>%
   mutate(path = case_when(
@@ -155,7 +155,13 @@ consumption %>%
   labs(x = "", y = "Consumption of Russian seafood \n(mil t, live weight)", fill = "") +
   facet_wrap(~sanctions_towards_russia) +
   theme_minimal() +
-  theme(legend.position = "bottom") # FIXIT: year labels shouldn't overlap
+  theme(
+    axis.title.y = element_text(size = 9),
+    legend.position = "top",
+    panel.spacing = unit(5, "mm")
+  )
+
+consumption_of_rus_p
 
 # Consumption of Russian products by sanctioning and non-sanctioning countries, colored by import path (direct vs indirect)
 # Line version
@@ -177,7 +183,10 @@ consumption %>%
   labs(x = "", y = "Consumption of Russian seafood \n(mil t, live weight)", color = "") +
   facet_wrap(~sanctions_towards_russia) +
   theme_minimal() +
-  theme(legend.position = "bottom") # FIXIT: year labels shouldn't overlap
+  theme(
+    legend.position = "bottom",
+    panel.spacing = unit(5, "mm")
+  )
 
 # Change in consumption stats
 # Change in total consumption of Russian products - imposed sanctions
@@ -238,7 +247,7 @@ paste("Change in total consumption of Russian products  - didn't impose sanction
 ```{r}
 # Russian consumption of seafood products from sanctioning and non-sanctioning countries, colored by import path (direct vs indirect)
 # Fill version
-consumption %>%
+rus_foreign_consumption_p <- consumption %>%
   filter(consumer_iso3c == "RUS", 
          source_country_iso3c != "RUS") %>%
   mutate(path = case_when(
@@ -256,7 +265,13 @@ consumption %>%
   labs(x = "", y = "Russian consumption of foreign seafood \n(mil t, live weight)", fill = "") +
   facet_wrap(~source_sanctions_towards_russia) +
   theme_minimal() +
-  theme(legend.position = "bottom") # FIXIT: year labels shouldn't overlap
+  theme(
+    axis.title.y = element_text(size = 9),
+    legend.position = "top",
+    panel.spacing = unit(5, "mm")
+  )
+
+rus_foreign_consumption_p
 
 # Russian consumption of seafood products from sanctioning and non-sanctioning countries, colored by import path (direct vs indirect)
 # Line version
@@ -278,7 +293,10 @@ consumption %>%
   labs(x = "", y = "Russian consumption of foreign seafood \n(mil t, live weight)", color = "") +
   facet_wrap(~source_sanctions_towards_russia) +
   theme_minimal() +
-  theme(legend.position = "bottom") # FIXIT: year labels shouldn't overlap
+  theme(
+    legend.position = "bottom",
+    panel.spacing = unit(5, "mm")
+  )
 
 
 # Change in Russia's consumption from countries imposing sanctions
@@ -310,6 +328,18 @@ paste("Change in Russia's consumption from countries imposing sanctions - direct
 
 ```
 
+```{r fig.height = 6, width = 8}
+# Format figure 1 together
+ggarrange(
+  consumption_of_rus_p,
+  rus_foreign_consumption_p,
+  nrow = 2,
+  common.legend = TRUE
+)
+
+ggsave("fig1.png", device = "png", height = 5, width = 6.5, units = "in")
+```
+
 
 ```{r}
 # Sankey diagram of flows of Russian products into the US
@@ -326,12 +356,26 @@ species_rank <- consumption %>%
   filter(consumer_iso3c == "USA", source_country_iso3c == "RUS", year %in% 2015:2019) %>%
   mutate(path = case_when(
     exporter_iso3c == "RUS" ~ "Direct import", 
-    TRUE ~ "Import from intermediate partner"
+    TRUE ~ "Import from\nintermediate partner"
   )) %>% 
   rename("importer_iso3c" = "consumer_iso3c",
          "live_weight_t" = "consumption_live_t") %>%
-  plot_bar(bar_group = "common_name_hs_modified", fill_type = "path") + 
-  theme(legend.position = "bottom")
+  mutate(common_name_hs_modified = case_when(
+    common_name_hs_modified == "alaska pollock(=walleye poll.)" ~ "Alaska Pollock",
+    common_name_hs_modified == "atlantic cod" ~ "Atlantic Cod",
+    common_name_hs_modified == "pink(=humpback) salmon" ~ "Pink Salmon",
+    common_name_hs_modified == "haddock" ~ "Haddock",
+    common_name_hs_modified == "pacific cod" ~ "Pacific Cod",
+    TRUE ~ common_name_hs_modified
+  )) %>%
+  mutate(common_name_hs_modified = gsub(" ", "\n", common_name_hs_modified)) %>%
+  plot_bar(bar_group = "common_name_hs_modified", fill_type = "path", top_n = 5) + 
+  theme(
+    legend.position = "bottom",
+    axis.text.y = element_text(angle = 90),
+    
+  ) +
+  labs(y = "", x = "Consumption (live weight tonnes)", fill = "")
 
 ggexport(species_rank, filename = "US_species_rank.png")
 
@@ -359,15 +403,16 @@ consumption %>%
 ```
 
 
-
 ```{r}
 rus_to_chn <- artis %>%
-  filter(source_country_iso3c == "RUS", exporter_iso3c == "RUS", importer_iso3c == "CHN") %>%
+  # Isolating Chinese imports that were originally caught in Russia
+  filter(source_country_iso3c == "RUS", importer_iso3c == "CHN") %>%
   group_by(year, sciname) %>%
   summarise(russia_live_t = sum(live_weight_t, na.rm = TRUE))
 
 notrus_to_chn <- artis %>%
-  filter(source_country_iso3c != "RUS", exporter_iso3c != "RUS", importer_iso3c == "CHN") %>%
+  # Isolating Chinese imports that were NOT originally caught in Russia
+  filter(source_country_iso3c != "RUS", importer_iso3c == "CHN") %>%
   group_by(year, sciname) %>%
   summarise(notrussia_live_t = sum(live_weight_t, na.rm = TRUE))
 
@@ -396,79 +441,6 @@ chn_to_usa <- artis %>%
     russia_live_t < live_weight_t ~ russia_live_t
   ))
 
-# FIXIT: This can be streamlined to not repeat code
-p1 <- artis %>%
-  filter(source_country_iso3c == "RUS", exporter_iso3c == "CHN", importer_iso3c == "USA") %>%
-  group_by(year, sciname) %>%
-  summarise(live_weight_t = sum(live_weight_t, na.rm = TRUE)) %>% 
-  filter(sciname == "gadus chalcogrammus") %>%
-  left_join(chn_to_usa %>%
-              select(year, sciname, min_russia, max_russia)) %>% 
-  ggplot(aes(x = year)) +
-  geom_ribbon(aes(ymin = min_russia, ymax = max_russia), fill = "#86ADA7", alpha = 0.5) +
-  geom_line(aes(y = live_weight_t)) +
-  labs(x = "", y = "tonnes, live weight", title = "US imports of Russian Alaska pollock via China") +
-  theme_bw()
-
-p2 <- artis %>%
-  filter(source_country_iso3c == "RUS", exporter_iso3c == "CHN", importer_iso3c == "USA") %>%
-  group_by(year, sciname) %>%
-  summarise(live_weight_t = sum(live_weight_t, na.rm = TRUE)) %>% 
-  filter(sciname == "oncorhynchus gorbuscha") %>%
-  left_join(chn_to_usa %>%
-              select(year, sciname, min_russia, max_russia)) %>% 
-  ggplot(aes(x = year)) +
-  geom_ribbon(aes(ymin = min_russia, ymax = max_russia), fill = "#86ADA7", alpha = 0.5) +
-  geom_line(aes(y = live_weight_t)) +
-  labs(x = "", y = "tonnes, live weight", title = "US imports of Russian pink salmon via China") +
-  theme_bw()
-
-p3 <- artis %>%
-  filter(source_country_iso3c == "RUS", exporter_iso3c == "CHN", importer_iso3c == "USA",
-         year > 1996) %>%
-  group_by(year, sciname) %>%
-  summarise(live_weight_t = sum(live_weight_t, na.rm = TRUE)) %>% 
-  filter(sciname == "gadus morhua") %>%
-  left_join(chn_to_usa %>%
-              select(year, sciname, min_russia, max_russia)) %>% 
-  ggplot(aes(x = year)) +
-  geom_ribbon(aes(ymin = min_russia, ymax = max_russia), fill = "#86ADA7", alpha = 0.5) +
-  geom_line(aes(y = live_weight_t)) +
-  labs(x = "", y = "tonnes, live weight", title = "US imports of Russian Atlantic cod via China") +
-  theme_bw()
-
-p4 <- artis %>%
-  filter(source_country_iso3c == "RUS", exporter_iso3c == "CHN", importer_iso3c == "USA",
-         year > 1996) %>%
-  group_by(year, sciname) %>%
-  summarise(live_weight_t = sum(live_weight_t, na.rm = TRUE)) %>% 
-  filter(sciname == "melanogrammus aeglefinus") %>%
-  left_join(chn_to_usa %>%
-              select(year, sciname, min_russia, max_russia)) %>% 
-  ggplot(aes(x = year)) +
-  geom_ribbon(aes(ymin = min_russia, ymax = max_russia), fill = "#86ADA7", alpha = 0.5) +
-  geom_line(aes(y = live_weight_t)) +
-  labs(x = "", y = "tonnes, live weight", title = "US imports of Russian haddock via China") +
-  theme_bw()
-
-p5 <- artis %>%
-  filter(source_country_iso3c == "RUS", exporter_iso3c == "CHN", importer_iso3c == "USA",
-         year > 1996) %>%
-  group_by(year, sciname) %>%
-  summarise(live_weight_t = sum(live_weight_t, na.rm = TRUE)) %>% 
-  filter(sciname == "gadus macrocephalus") %>%
-  left_join(chn_to_usa %>%
-              select(year, sciname, min_russia, max_russia)) %>% 
-  ggplot(aes(x = year)) +
-  geom_ribbon(aes(ymin = min_russia, ymax = max_russia), fill = "#86ADA7", alpha = 0.5) +
-  geom_line(aes(y = live_weight_t)) +
-  labs(x = "", y = "tonnes, live weight", title = "US imports of Russian Pacific cod via China") +
-  theme_bw() 
-
-p_joined <- ggarrange(p1, p2, p3, p4, ncol = 1)
-
-ggexport(p_joined, filename = "US_species_import_range.png")
-
 # Stats
 chn_to_usa %>% 
   filter(year == 2020, 
@@ -483,6 +455,222 @@ consumption %>%
   mutate(percent = 100*consumption_live_t/sum(consumption_live_t)) %>%
   mutate(cum_percent = cumsum(percent))
 
+```
+
+```{r}
+rus_chn_usa <- artis %>%
+  filter(source_country_iso3c == "RUS", exporter_iso3c == "CHN", importer_iso3c == "USA") %>%
+  group_by(year, sciname) %>%
+  summarise(live_weight_t = sum(live_weight_t, na.rm = TRUE)) %>%
+  ungroup() %>%
+  left_join(chn_to_usa %>%
+            select(year, sciname, min_russia, max_russia)) %>%
+  mutate(live_weight_t = live_weight_t / 1e3,
+         min_russia = min_russia / 1e3,
+         max_russia = max_russia / 1e3)
+
+p1 <- rus_chn_usa %>% 
+  filter(sciname == "gadus chalcogrammus",
+         year > 1996) %>%
+  ggplot(aes(x = year)) +
+  geom_ribbon(aes(ymin = min_russia, ymax = max_russia), fill = "#86ADA7", alpha = 0.5) +
+  geom_line(aes(y = live_weight_t)) +
+  xlim(1997, 2020) +
+  scale_y_continuous(position = "right") +
+  labs(x = "", y = "tonnes, live weight") +#, title = "US imports of Russian Alaska pollock via China") +
+  theme_bw() +
+  theme(
+    axis.title.y = element_blank(),
+    axis.text.x = element_blank(),
+    plot.margin = margin(l = 2, b = -2, unit = "mm")
+  )
+
+p2 <- rus_chn_usa %>%
+  filter(year > 1996,
+         sciname == "gadus morhua") %>%
+  left_join(chn_to_usa %>%
+              select(year, sciname, min_russia, max_russia)) %>% 
+  ggplot(aes(x = year)) +
+  geom_ribbon(aes(ymin = min_russia, ymax = max_russia), fill = "#86ADA7", alpha = 0.5) +
+  geom_line(aes(y = live_weight_t)) +
+  scale_y_continuous(position = "right") +
+  xlim(1997, 2020) +
+  labs(x = "", y = "tonnes, live weight") +#, title = "US imports of Russian Atlantic cod via China") +
+  theme_bw() +
+  theme(
+    axis.title.y = element_blank(),
+    axis.text.x = element_blank(),
+    plot.margin = margin(r = 2, l = 2, b = -2, unit = "mm")
+  )
+
+p3 <- rus_chn_usa %>%
+  filter(sciname == "oncorhynchus gorbuscha",
+         year > 1996) %>%
+  ggplot(aes(x = year)) +
+  geom_ribbon(aes(ymin = min_russia, ymax = max_russia), fill = "#86ADA7", alpha = 0.5) +
+  geom_line(aes(y = live_weight_t)) +
+  scale_y_continuous(position = "right") +
+  xlim(1997, 2020) +
+  labs(x = "", y = "tonnes, live weight") +#, title = "US imports of Russian pink salmon via China") +
+  theme_bw() +
+  theme(
+    axis.title.y = element_blank(),
+    axis.text.x = element_blank(),
+    plot.margin = margin(r = 2, l = 2, b = -2, unit = "mm")
+  )
+
+p4 <- rus_chn_usa %>%
+  filter(sciname == "melanogrammus aeglefinus",
+         year > 1996) %>%
+  ggplot(aes(x = year)) +
+  geom_ribbon(aes(ymin = min_russia, ymax = max_russia), fill = "#86ADA7", alpha = 0.5) +
+  geom_line(aes(y = live_weight_t)) +
+  scale_y_continuous(position = "right") +
+  xlim(1997, 2020) +
+  labs(x = "", y = "tonnes, live weight") +#, title = "US imports of Russian haddock via China") +
+  theme_bw() +
+  theme(
+    axis.title.y = element_blank(),
+    axis.text.x = element_blank(),
+    plot.margin = margin(l = 2, b = -2, r = 1.5, unit = "mm")
+  )
+
+p5 <- rus_chn_usa %>%
+  filter(sciname == "gadus macrocephalus",
+         year > 1996) %>%
+  ggplot(aes(x = year)) +
+  geom_ribbon(aes(ymin = min_russia, ymax = max_russia), fill = "#86ADA7", alpha = 0.5) +
+  geom_line(aes(y = live_weight_t)) +
+  scale_y_continuous(position = "right") +
+  xlim(1997, 2020) +
+  labs(x = "", y = "tonnes, live weight") +#, title = "US imports of Russian Pacific cod via China") +
+  theme_bw() +
+  theme(
+    axis.title.y = element_blank(),
+    plot.margin = margin(t = -1, r = 2, l = 2, b = -2, unit = "mm")
+  )
+
+
+p_joined <- ggarrange(p1, p2, p3, p4, p5, ncol = 1)
+
+ggexport(p_joined, filename = "US_species_import_range.png")
+
+# Top species US consumes sourced from Russia
+
+species_rank_df <- consumption %>%
+  filter(consumer_iso3c == "USA", source_country_iso3c == "RUS", year %in% 2015:2019) %>%
+  mutate(path = case_when(
+    exporter_iso3c == "RUS" ~ "Direct\nimport", 
+    TRUE ~ "Import from\nintermediate partner"
+  )) %>% 
+  rename("importer_iso3c" = "consumer_iso3c",
+         "live_weight_t" = "consumption_live_t") %>%
+  mutate(common_name_hs_modified = case_when(
+    common_name_hs_modified == "alaska pollock(=walleye poll.)" ~ "Alaska Pollock",
+    common_name_hs_modified == "atlantic cod" ~ "Atlantic Cod",
+    common_name_hs_modified == "pink(=humpback) salmon" ~ "Pink Salmon",
+    common_name_hs_modified == "haddock" ~ "Haddock",
+    common_name_hs_modified == "pacific cod" ~ "Pacific Cod",
+    TRUE ~ common_name_hs_modified
+  )) %>%
+  mutate(common_name_hs_modified = gsub(" ", "\n", common_name_hs_modified)) %>%
+  mutate(live_weight_t = live_weight_t / length(2015:2019)) %>%
+  mutate(live_weight_t = live_weight_t / 1e3)
+
+species_rank_1 <- species_rank_df %>%
+  filter(common_name_hs_modified == "Alaska\nPollock") %>%
+  mutate(dom_source == "") %>%
+  plot_bar(bar_group = "common_name_hs_modified", fill_type = "path", top_n = 5) +
+  xlim(0, 90) +
+  theme(
+    legend.position = "none",
+    axis.text.x = element_blank(),
+    axis.text.y = element_text(angle = 90, hjust = 0.5),
+    plot.margin = margin(b = -2, unit = "mm")
+  ) +
+  labs(y = "", x = "", fill = "")
+
+species_rank_2 <- species_rank_df %>%
+  filter(common_name_hs_modified == "Atlantic\nCod") %>%
+  plot_bar(bar_group = "common_name_hs_modified", fill_type = "path", top_n = 5) + 
+  xlim(0, 90) +
+  theme(
+    legend.position = "none",
+    axis.text.x = element_blank(),
+    axis.text.y = element_text(angle = 90, hjust = 0.5),
+    plot.margin = margin(b = -2, unit = "mm")
+  ) +
+  labs(y = "", x = "", fill = "")
+
+species_rank_3 <- species_rank_df %>%
+  filter(common_name_hs_modified == "Pink\nSalmon") %>%
+  plot_bar(bar_group = "common_name_hs_modified", fill_type = "path", top_n = 5) + 
+  xlim(0, 90) +
+  theme(
+    legend.position = "none",
+    axis.text.x = element_blank(),
+    axis.text.y = element_text(angle = 90, hjust = 0.5),
+    plot.margin = margin(b = -2, unit = "mm")
+  ) +
+  labs(y = "", x = "", fill = "")
+
+species_rank_4 <- species_rank_df %>%
+  filter(common_name_hs_modified == "Haddock") %>%
+  mutate(common_name_hs_modified = paste("\n", common_name_hs_modified, sep = "")) %>%
+  plot_bar(bar_group = "common_name_hs_modified", fill_type = "path", top_n = 5) + 
+  xlim(0, 90) +
+  theme(
+    legend.position = "none",
+    axis.text.x = element_blank(),
+    axis.text.y = element_text(angle = 90, hjust = 0.5),
+    plot.margin = margin(b = -2, unit = "mm")
+  ) +
+  labs(y = "", x = "", fill = "")
+
+species_rank_5 <- species_rank_df %>%
+  filter(common_name_hs_modified == "Pacific\nCod") %>%
+  plot_bar(bar_group = "common_name_hs_modified", fill_type = "path", top_n = 5) + 
+  xlim(0, 90) +
+  theme(
+    legend.position = "bottom",
+    axis.text.y = element_text(angle = 90, hjust = 0.5),
+    axis.title.x = element_text(size = 7),
+    legend.key.size = unit(1, units = "line"),
+    plot.margin = margin(t = -2, b = -1, unit = "mm")
+  ) +
+  labs(y = "", x = "Avg. Consumption (1000 t) (2015-2019)", fill = "")
+
+# Format Figure 2 together
+fig2 <- ggarrange(
+  species_rank_1, p1,
+  species_rank_2, p2,
+  species_rank_3, p3,
+  species_rank_4, p4,
+  species_rank_5, p5,
+  ncol = 2, nrow = 5,
+  widths = c(1, 2),
+  heights = c(1, 1, 1, 1, 1),
+  common.legend = TRUE,
+  legend = "bottom"
+  )
+
+fig2
+
+fig2 <- annotate_figure(
+  fig2,
+  right = text_grob("US Imports of Russian Species (1000 t, live weight)", rot = 270)
+  )
+
+fig2 <- ggarrange(
+  rus_us_sankey,
+  fig2,
+  nrow = 2,
+  heights = c(1, 2)
+)
+
+fig2
+
+ggsave("fig2.png", device = "png", width = 6.5, height = 6)
 ```
 
 ```{r}
