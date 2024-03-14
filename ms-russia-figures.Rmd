@@ -112,17 +112,16 @@ consumption <- consumption %>%
   filter(source_country_iso3c == "RUS"|exporter_iso3c == "RUS"|consumer_iso3c == "RUS") %>%
   # Add variables for whether source/importer/exporter imposed sanctions following annexation of Crimea
     mutate(sanctions_towards_russia = case_when(
-      consumer_iso3c %in% c("USA", "AUT", "BEL", "BGR", "HRV", "CYP", "CZE", "DNK", "EST", "FIN", "FRA", "DEU", "GRC", "HUN", "IRL", "ITA", "LVA", "LTU", "LUX", "MLT", 
-                            "NLD", # FIXIT: Need to find out what is happening with the Netherlands and others directly importing
-                            "POL", "PRT", "ROM", "SVK", "SVN", "ESP", "SWE", "GBR", "JPN", "ALB", "ISL", "AUS", "MNT", "UKR", "CAN", "NOR", "CHE", "MDA")  ~ "Imposed sanctions",
-      TRUE ~ "Did not impose sanctions"
+      consumer_iso3c %in% c("USA", "AUT", "BEL", "BGR", "HRV", "CYP", "CZE", "DNK", "EST", "FIN", "FRA", "DEU", "GRC", "HUN", "IRL", "ITA", "LVA", "LTU", "LUX", "MLT", "NLD", 
+                            "POL", "PRT", "ROM", "SVK", "SVN", "ESP", "SWE", "GBR", "JPN", "ALB", "ISL", "AUS", "MNT", "UKR", "CAN", "NOR", "CHE", "MDA")  ~ "Russia unfriendly countries",
+      TRUE ~ "Russia friendly countries"
     )) %>%
       mutate(exporter_sanctions_towards_russia = case_when(
-      exporter_iso3c %in% c("USA", "AUT", "BEL", "BGR", "HRV", "CYP", "CZE", "DNK", "EST", "FIN", "FRA", "DEU", "GRC", "HUN", "IRL", "ITA", "LVA", "LTU", "LUX", "MLT", "NLD", "POL", "PRT", "ROM", "SVK", "SVN", "ESP", "SWE", "GBR", "JPN", "ALB", "ISL", "AUS", "MNT", "UKR", "CAN", "NOR", "CHE", "MDA")  ~ "Imposed sanctions",
-      TRUE ~ "Did not impose sanctions")) %>%
+      exporter_iso3c %in% c("USA", "AUT", "BEL", "BGR", "HRV", "CYP", "CZE", "DNK", "EST", "FIN", "FRA", "DEU", "GRC", "HUN", "IRL", "ITA", "LVA", "LTU", "LUX", "MLT", "NLD", "POL", "PRT", "ROM", "SVK", "SVN", "ESP", "SWE", "GBR", "JPN", "ALB", "ISL", "AUS", "MNT", "UKR", "CAN", "NOR", "CHE", "MDA")  ~ "Russia unfriendly countries",
+      TRUE ~ "Russia friendly countries")) %>%
     mutate(source_sanctions_towards_russia = case_when(
-      source_country_iso3c %in% c("USA", "AUT", "BEL", "BGR", "HRV", "CYP", "CZE", "DNK", "EST", "FIN", "FRA", "DEU", "GRC", "HUN", "IRL", "ITA", "LVA", "LTU", "LUX", "MLT", "NLD", "POL", "PRT", "ROM", "SVK", "SVN", "ESP", "SWE", "GBR", "JPN", "ALB", "ISL", "AUS", "MNT", "UKR", "CAN", "NOR", "CHE", "MDA")  ~ "Imposed sanctions",
-      TRUE ~ "Did not impose sanctions")) %>% 
+      source_country_iso3c %in% c("USA", "AUT", "BEL", "BGR", "HRV", "CYP", "CZE", "DNK", "EST", "FIN", "FRA", "DEU", "GRC", "HUN", "IRL", "ITA", "LVA", "LTU", "LUX", "MLT", "NLD", "POL", "PRT", "ROM", "SVK", "SVN", "ESP", "SWE", "GBR", "JPN", "ALB", "ISL", "AUS", "MNT", "UKR", "CAN", "NOR", "CHE", "MDA")  ~ "Russia unfriendly countries",
+      TRUE ~ "Russia friendly countries")) %>% 
   # Add common names (for both sciname and sciname_hs_modified)
     left_join(sciname_metadata %>% 
               select(sciname, common_name), 
@@ -137,12 +136,17 @@ consumption <- consumption %>%
 ```{r}
 # Consumption of Russian products by sanctioning and non-sanctioning countries, colored by import path (direct vs indirect)
 # Fill version
-consumption_of_rus_p <- consumption %>%
+
+consumption_russian_ts_fill <- consumption %>%
   filter(consumer_iso3c != "RUS", 
          source_country_iso3c == "RUS") %>%
   mutate(path = case_when(
     exporter_iso3c == "RUS" ~ "Direct import", 
     TRUE ~ "Import from intermediate partner"
+  )) %>%
+  mutate(sanctions_towards_russia = case_when(
+    sanctions_towards_russia == "Did not impose sanctions" ~ "Friendly countries' consumption\nof seafood from Russia",
+    TRUE ~ "Unfriendly countries' consumption\nof seafood from Russia"
   )) %>% 
   group_by(year, path, sanctions_towards_russia) %>%
   summarise(consumption_live_t = sum(consumption_live_t)) %>%
@@ -152,7 +156,7 @@ consumption_of_rus_p <- consumption %>%
   scale_fill_manual(values = c("#D4B95f", # khaki
                                "#4FA2A2" # teal
   )) + 
-  labs(x = "", y = "Consumption of Russian seafood \n(mil t, live weight)", fill = "") +
+  labs(x = "", y = "Consumption (mil t, live weight)", fill = "") +
   facet_wrap(~sanctions_towards_russia) +
   theme_minimal() +
   theme(
@@ -161,11 +165,11 @@ consumption_of_rus_p <- consumption %>%
     panel.spacing = unit(5, "mm")
   )
 
-consumption_of_rus_p
+consumption_russian_ts_fill
 
 # Consumption of Russian products by sanctioning and non-sanctioning countries, colored by import path (direct vs indirect)
 # Line version
-consumption %>%
+consumption_russian_ts_line <- consumption %>%
   filter(consumer_iso3c != "RUS", 
          source_country_iso3c == "RUS") %>%
   mutate(path = case_when(
@@ -188,10 +192,12 @@ consumption %>%
     panel.spacing = unit(5, "mm")
   )
 
+consumption_russian_ts_line
+
 # Change in consumption stats
 # Change in total consumption of Russian products - imposed sanctions
 consumption_change <- consumption %>%
-  filter(sanctions_towards_russia == "Imposed sanctions", 
+  filter(sanctions_towards_russia == "Russia unfriendly countries", 
          source_country_iso3c == "RUS") %>%
   group_by(year) %>%
   summarise(consumption_live_t = sum(consumption_live_t, na.rm = TRUE))
@@ -203,7 +209,7 @@ q_post <- consumption_change %>% filter(year %in% 2015:2016) %>% summarise(consu
 
 # Change in consumption of Russian products via direct import - imposed sanctions
 consumption_change <- consumption %>%
-  filter(sanctions_towards_russia == "Imposed sanctions", 
+  filter(sanctions_towards_russia == "Russia unfriendly countries", 
          exporter_iso3c == "RUS",
          source_country_iso3c == "RUS") %>%
   group_by(year) %>%
@@ -216,7 +222,7 @@ q_post <- consumption_change %>% filter(year %in% 2015:2016) %>% summarise(consu
 
 # Change in consumption of Russian products via indirect import - imposed sanctions
 consumption_change <- consumption %>%
-  filter(sanctions_towards_russia == "Imposed sanctions", 
+  filter(sanctions_towards_russia == "Russia unfriendly countries", 
          exporter_iso3c != "RUS",
          source_country_iso3c == "RUS") %>%
   group_by(year) %>%
@@ -230,7 +236,7 @@ paste("Change in consumption of Russian products via indirect import - imposed s
 
 # Change in total consumption of Russian products  - didn't impose sanctions
 consumption_change <- consumption %>%
-  filter(sanctions_towards_russia == "Did not impose sanctions", 
+  filter(sanctions_towards_russia == "Russia friendly countries", 
          source_country_iso3c == "RUS") %>%
   group_by(year) %>%
   summarise(consumption_live_t = sum(consumption_live_t, na.rm = TRUE))
@@ -246,14 +252,19 @@ paste("Change in total consumption of Russian products  - didn't impose sanction
 
 ```{r}
 # Russian consumption of seafood products from sanctioning and non-sanctioning countries, colored by import path (direct vs indirect)
+
 # Fill version
-rus_foreign_consumption_p <- consumption %>%
+consumption_by_russia_ts_fill <- consumption %>%
   filter(consumer_iso3c == "RUS", 
          source_country_iso3c != "RUS") %>%
   mutate(path = case_when(
     source_country_iso3c == exporter_iso3c ~ "Direct import", 
     TRUE ~ "Import from intermediate partner"
   )) %>% 
+  mutate(source_sanctions_towards_russia = case_when(
+    source_sanctions_towards_russia == "Did not impose sanctions" ~ "Russian consumption of seafood\nfrom friendly countries",
+    TRUE ~ "Russian consumption of seafood\nfrom unfriendly countries"
+  )) %>%
   group_by(year, path, source_sanctions_towards_russia) %>%
   summarise(consumption_live_t = sum(consumption_live_t)) %>%
   ggplot(aes(x = year, y = consumption_live_t/1000000, fill = path)) +
@@ -262,7 +273,7 @@ rus_foreign_consumption_p <- consumption %>%
   scale_fill_manual(values = c("#D4B95f", # khaki
                                "#4FA2A2" # teal
   )) + 
-  labs(x = "", y = "Russian consumption of foreign seafood \n(mil t, live weight)", fill = "") +
+  labs(x = "", y = "Consumption (mil t, live weight)", fill = "") +
   facet_wrap(~source_sanctions_towards_russia) +
   theme_minimal() +
   theme(
@@ -271,11 +282,11 @@ rus_foreign_consumption_p <- consumption %>%
     panel.spacing = unit(5, "mm")
   )
 
-rus_foreign_consumption_p
+consumption_by_russia_ts_fill
 
 # Russian consumption of seafood products from sanctioning and non-sanctioning countries, colored by import path (direct vs indirect)
 # Line version
-consumption %>%
+consumption_by_russia_ts_line <- consumption %>%
   filter(consumer_iso3c == "RUS", 
          source_country_iso3c != "RUS") %>%
   mutate(path = case_when(
@@ -298,10 +309,12 @@ consumption %>%
     panel.spacing = unit(5, "mm")
   )
 
+consumption_by_russia_ts_line
+
 
 # Change in Russia's consumption from countries imposing sanctions
 consumption_change <- consumption %>%
-  filter(source_sanctions_towards_russia == "Imposed sanctions", 
+  filter(source_sanctions_towards_russia == "Russia unfriendly countries", # FIXIT
          consumer_iso3c == "RUS") %>%
   group_by(year) %>%
   summarise(consumption_live_t = sum(consumption_live_t, na.rm = TRUE))
@@ -314,7 +327,7 @@ paste("Change in Russia's consumption from countries imposing sanctions")
 
 # Change in Russia's consumption from countries imposing sanctions - direct imports
 consumption_change <- consumption %>%
-  filter(source_sanctions_towards_russia == "Imposed sanctions", 
+  filter(source_sanctions_towards_russia == "Russia unfriendly countries", 
          source_country_iso3c == exporter_iso3c,
          consumer_iso3c == "RUS") %>%
   group_by(year) %>%
@@ -326,6 +339,16 @@ q_post <- consumption_change %>% filter(year %in% 2015:2016) %>% summarise(consu
 paste("Change in Russia's consumption from countries imposing sanctions - direct imports")
 100*(q_post - q_pre)/q_pre
 
+```
+```{r, fig.height=6}
+# Join plots
+ggarrange(consumption_russian_ts_fill, consumption_by_russia_ts_fill, 
+          common.legend = TRUE, ncol = 1, legend = "bottom")
+
+ggsave("fig1.png", device = "png", width = 6.5, height = 5, unit = "in")
+
+ggarrange(consumption_russian_ts_line, consumption_by_russia_ts_line, 
+          common.legend = TRUE, ncol = 1)
 ```
 
 ```{r fig.height = 6, width = 8}
