@@ -13,6 +13,11 @@ library(ggpubr)
 
 # Setup-------------------------------------------------------------------------
 outdir <- "data"
+figdir <- "figures"
+
+# Create directories if they do not exist
+if (dir.exists(outdir)) { dir.create(outdir) }
+if (dir.exists(figdir)) { dir.create(figdir) }
 
 # Initial database pulls--------------------------------------------------------
 # Database connection
