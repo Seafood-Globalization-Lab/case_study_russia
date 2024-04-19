@@ -412,6 +412,18 @@ consumption %>%
   mutate(percent = 100*consumption_live_t/sum(consumption_live_t)) %>%
   arrange(desc(percent))
 
+# Percent of US consumption moving through intermediate country
+consumption %>%
+  filter(consumer_iso3c == "USA", source_country_iso3c == "RUS", year %in% 2015:2019) %>% 
+  mutate(path = case_when(
+    exporter_iso3c == "RUS" ~ "direct", 
+    TRUE ~ "indirect"
+  )) %>%
+  group_by(path) %>% 
+  summarise(consumption_live_t = sum(consumption_live_t, na.rm = TRUE)) %>% 
+  ungroup() %>%
+  mutate(percent = 100*consumption_live_t/sum(consumption_live_t))
+
 # Percent by species
 consumption %>%
   filter(consumer_iso3c == "USA", source_country_iso3c == "RUS", year %in% 2015:2019) %>% 
