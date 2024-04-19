@@ -1,0 +1,244 @@
+---
+title: "ms_russia_results"
+author: ""
+date: "2024-04-17"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+knitr::opts_chunk$set(include = FALSE)
+knitr::opts_chunk$set(message = FALSE)
+knitr::opts_chunk$set(warning = FALSE)
+
+library(tidyverse)
+library(reactable)
+library(reactablefmtr)
+
+datadir <- "data"
+```
+
+```{r load_data}
+consumption <- read.csv(file.path(datadir, "case_study_consumption.csv"))
+consumption_by_rus <- read.csv(file.path(datadir, "fig1_consumption_by_russia.csv"))
+rus_chn_usa <- read.csv(file.path(datadir, "rus_chn_usa.csv"))
+```
+
+```{r rus_imports_change}
+# Calculating Russia's consumption from countries imposing sanctions across years
+consumption_change <- consumption %>%
+  filter(source_sanctions_towards_russia == "Russia unfriendly countries",
+         consumer_iso3c == "RUS") %>%
+  group_by(year) %>%
+  summarise(consumption_live_t = sum(consumption_live_t, na.rm = TRUE)) %>%
+  ungroup()
+
+# Russia's consumption (2013-2014) from countries imposing sanctions
+q_pre <- consumption_change %>%
+  filter(year %in% 2013:2014) %>%
+  summarise(consumption_live_t = sum(consumption_live_t, na.rm = TRUE)) %>%
+  ungroup() %>%
+  pull(consumption_live_t)
+
+# Russia's consumption (2013-2014) from countries imposing sanctions
+q_post <- consumption_change %>%
+  filter(year %in% 2015:2016) %>%
+  summarise(consumption_live_t = sum(consumption_live_t, na.rm = TRUE)) %>%
+  ungroup %>%
+  pull(consumption_live_t)
+
+# Percent change in Russian consumption from countries imposing sanctions
+percent_change <- 100 * ((q_post - q_pre) / q_pre)
+```
+
+Russia's consumption, in 2013-2014, from countries imposing sanctions was `r signif(q_pre / 1e6, digits = 3)` million tonnes. Russia's consumption, in 2015-2016, from countries imposing sanctions was `r signif(q_post / 1e5, digits = 3)` hundred thousand tonnes. This represented a percent change of `r signif(percent_change, digits = 3)`%.
+
+```{r top_intermediate_partners, echo = TRUE}
+intermediate_partners <- consumption %>%
+  filter(consumer_iso3c == "USA",
+         source_country_iso3c == "RUS",
+         year %in% 2015:2019) %>% 
+  group_by(exporter_iso3c) %>% 
+  summarise(consumption_live_t = sum(consumption_live_t, na.rm = TRUE)) %>% 
+  ungroup() %>%
+  mutate(percent = 100 * consumption_live_t / sum(consumption_live_t)) %>%
+  arrange(desc(percent))
+
+top_intermediates <- intermediate_partners %>%
+  slice_max(order_by = percent, n = 5)
+
+colnames(top_intermediates) <- c("Intermediate Exporter", "Consumption (live weight tonnes)", "Percent (%)")
+```
+### Top Intermediate Exporters for Russian sourced products to the US (2015-2019)
+`r reactable(top_intermediates)`
+
+```{r}
+top_intermediate_partner <- intermediate_partners %>%
+  slice_max(order_by = percent, n = 1) %>%
+  pull(exporter_iso3c)
+
+top_intermediate_partner_percent <- intermediate_partners %>%
+  slice_max(order_by = percent, n = 1) %>%
+  pull(percent)
+
+top_intermediate_partner_species <- consumption %>%
+  filter(consumer_iso3c == "USA", exporter_iso3c == top_intermediate_partner, source_country_iso3c == "RUS", year %in% 2015:2019) %>% 
+  group_by(common_name_hs_modified) %>% 
+  summarise(consumption_live_t = sum(consumption_live_t, na.rm = TRUE)) %>% 
+  ungroup() %>%
+  mutate(percent = 100*consumption_live_t/sum(consumption_live_t)) %>%
+  arrange(desc(percent)) %>%
+  slice_max(order_by = percent, n = 3)
+```
+
+### Top Species Exported from RUS -> `r top_intermediate_partner` -> USA
+`r reactable(top_intermediate_partner_species)`
+
+We show that in recent years (2015-2019), `r signif(top_intermediate_partner_percent, digits = 3)` of Russian products consumed in the US moved through `r top_intermediate_partner`, with the majority being `r top_intermediate_partner_species[1,]$common_name_hs_modified`, `r top_intermediate_partner_species[2,]$common_name_hs_modified`, and `r top_intermediate_partner_species[3,]$common_name_hs_modified`.
+
+```{r unfriendly_countries_consumption}
+unfriendly_rus_consumption <- consumption %>%
+  filter(sanctions_towards_russia == "Russia unfriendly countries" &
+           ((year %in% 2013:2014) | (year %in% 2015:2016))) %>%
+  mutate(period = case_when(
+    year %in% 2013:2014 ~ "before_sanctions",
+    TRUE ~ "after_sanctions"
+  )) %>%
+  group_by(sanctions_towards_russia, period) %>%
+  summarize(consumption_live_t = sum(consumption_live_t, na.rm = TRUE)) %>%
+  ungroup()
+
+unfriendly_consumption_pre <- unfriendly_rus_consumption %>%
+  filter(period == "before_sanctions") %>%
+  pull(consumption_live_t)
+
+unfriendly_consumption_post <- unfriendly_rus_consumption %>%
+  filter(period == "after_sanctions") %>%
+  pull(consumption_live_t)
+
+unfriendly_consumption_percent_change = 100 * ((unfriendly_consumption_post - unfriendly_consumption_pre) / unfriendly_consumption_pre)
+```
+
+Analyzing consumption of Russian-caught seafood following the 2014 round of sanctions, we find that countries that imposed sanctions (“unfriendly countries”) initially moderately reduced total consumption of Russian seafood (`r signif(unfriendly_consumption_percent_change, digits = 3)`%) in 2015–2016 compared to 2013-2014.
+
+```{r friendly_countries_consumption}
+friendly_rus_consumption <- consumption %>%
+  filter(sanctions_towards_russia == "Russia friendly countries" &
+           ((year %in% 2013:2014) | (year %in% 2015:2016))) %>%
+  mutate(period = case_when(
+    year %in% 2013:2014 ~ "before_sanctions",
+    TRUE ~ "after_sanctions"
+  )) %>%
+  group_by(sanctions_towards_russia, period) %>%
+  summarize(consumption_live_t = sum(consumption_live_t, na.rm = TRUE)) %>%
+  ungroup()
+
+friendly_consumption_pre <- friendly_rus_consumption %>%
+  filter(period == "before_sanctions") %>%
+  pull(consumption_live_t)
+
+friendly_consumption_post <- friendly_rus_consumption %>%
+  filter(period == "after_sanctions") %>%
+  pull(consumption_live_t)
+
+friendly_consumption_percent_change = 100 * ((friendly_consumption_post - friendly_consumption_pre) / friendly_consumption_pre)
+```
+
+Countries which did not impose sanctions (“friendly countries”) also increased consumption of Russian products (`r signif(friendly_consumption_percent_change, digits = 3)`% in 2015–2016 compared to 2013–2014).
+
+```{r consumption_by_russia}
+
+consumption_by_rus <- consumption %>%
+  filter(consumer_iso3c == "RUS", 
+         source_country_iso3c != "RUS",
+         ((year %in% 2013:2014) | (year %in% 2015:2016))) %>%
+  mutate(period = case_when(
+    year %in% 2013:2014 ~ "before_sanctions",
+    TRUE ~ "after_sanctions"
+  )) %>%
+  group_by(source_sanctions_towards_russia, period) %>%
+  summarise(consumption_live_t = sum(consumption_live_t)) %>%
+  ungroup()
+
+rus_of_unfriendly <- consumption_by_rus %>%
+  filter(source_sanctions_towards_russia == "Russia unfriendly countries")
+
+rus_of_unfriendly_pre <- rus_of_unfriendly %>%
+  filter(period == "before_sanctions") %>%
+  pull(consumption_live_t)
+
+rus_of_unfriendly_post <- rus_of_unfriendly %>%
+  filter(period == "after_sanctions") %>%
+  pull(consumption_live_t)
+
+rus_of_unfriendly_percent_change <- 100 * ((rus_of_unfriendly_post - rus_of_unfriendly_pre) / rus_of_unfriendly_pre)
+```
+
+### Consumption By Russia
+`r reactable(consumption_by_rus)`
+
+Russia reduced consumption of seafood from unfriendly countries by `r signif(rus_of_unfriendly_percent_change, digits = 3)`% between 2015-2016 compared to 2013-2014.
+
+```{r}
+rus_to_us_path <- consumption %>%
+  filter(consumer_iso3c == "USA" & source_country_iso3c == "RUS" &
+           (year >= 2015 & year <= 2019)) %>%
+  group_by(source_country_iso3c, exporter_iso3c, consumer_iso3c) %>%
+  summarize(consumption_live_t = sum(consumption_live_t)) %>%
+  ungroup() %>%
+  mutate(path = case_when(
+    exporter_iso3c == "RUS" ~ "Direct",
+    TRUE ~ "Indirect"
+  )) %>%
+  group_by(source_country_iso3c, consumer_iso3c, path) %>%
+  summarize(consumption_live_t = sum(consumption_live_t)) %>%
+  ungroup() %>%
+  group_by(consumer_iso3c, source_country_iso3c) %>%
+  mutate(percent = 100 * (consumption_live_t/sum(consumption_live_t))) %>%
+  ungroup()
+
+rus_to_us_indirect_percent <- rus_to_us_path %>%
+  filter(path == "Indirect") %>%
+  pull(percent)
+```
+
+### US Direct vs Indirect consumption of Russian Products (2015-2019)
+
+`r reactable(rus_to_us_path)`
+
+We find that for 2015–2019, `r signif(rus_to_us_indirect_percent, digits = 3)`% of Russian-harvested seafood consumed in the US was processed in and imported from a country other than Russia, with `r signif(top_intermediate_partner_percent, digits = 3)`% moving through `r top_intermediate_partner` 
+
+```{r}
+
+rus_to_us_species <- consumption %>%
+  filter(consumer_iso3c == "USA", source_country_iso3c == "RUS", year %in% 2015:2019) %>% 
+  group_by(sciname_hs_modified, common_name_hs_modified) %>% 
+  summarise(consumption_live_t = sum(consumption_live_t, na.rm = TRUE)) %>% 
+  ungroup() %>%
+  mutate(percent = 100 * consumption_live_t / sum(consumption_live_t)) %>%
+  arrange(desc(percent))
+
+top_rus_to_us_species <- rus_to_us_species %>%
+  slice_max(order_by = percent, n = 5)
+
+top_rus_to_us_species_percent <- sum(top_rus_to_us_species$percent)
+```
+
+The top five species were `r top_rus_to_us_species[1,]$common_name_hs_modified` (`r top_rus_to_us_species[1,]$sciname_hs_modified`), `r top_rus_to_us_species[2,]$common_name_hs_modified` (`r top_rus_to_us_species[2,]$sciname_hs_modified`), `r top_rus_to_us_species[3,]$common_name_hs_modified` (`r top_rus_to_us_species[3,]$sciname_hs_modified`),  `r top_rus_to_us_species[4,]$common_name_hs_modified` (`r top_rus_to_us_species[4,]$sciname_hs_modified`), and `r top_rus_to_us_species[5,]$common_name_hs_modified` (`r top_rus_to_us_species[5,]$sciname_hs_modified`), which collectively made up `r signif(top_rus_to_us_species_percent, digits = 3)`% of US consumption of Russian products.
+
+```{r consumption_minimums_2020}
+
+alaska_pollock_min <- rus_chn_usa %>%
+  filter(year == 2020 &
+           sciname == "gadus chalcogrammus") %>%
+  pull(min_russia)
+
+pink_salmon_min <- rus_chn_usa %>%
+  filter(year == 2020 &
+           sciname == "oncorhynchus gorbuscha") %>%
+  pull(min_russia)
+```
+
+While US imports of Atlantic cod from China could technically be explained without Russian-sourced products, we estimate that the US imported at least `r signif(alaska_pollock_min, digits = 3)` thousand and `r signif(pink_salmon_min, digits = 3)` thousand tonnes of Russian-sourced Alaska pollock and pink salmon, respectively, via China in 2020.
+
+

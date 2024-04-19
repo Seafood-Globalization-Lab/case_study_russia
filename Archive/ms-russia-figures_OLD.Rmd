@@ -1,0 +1,761 @@
+---
+title: "Russian sanctions figures"
+output: html_document
+date: "2024-02-07"
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+To do: 
+- 
+
+```{r}
+library(tidyverse)
+library(countrycode)
+library(exploreARTIS)
+library(DBI)
+library(janitor)
+library(broom)
+library(dbscan)
+library(GGally)
+library(ggrepel)
+library(ggpubr)
+```
+
+```{r}
+habitat_source_colors <- c("#1B708F", # blue = marine capture
+                          "#86ADA7", # light blue = freshwater capture
+                          "#F37542", # medium orange = marine aquaculture
+                          "#F7AF75", # light orange = inland aquaculture
+                          "grey50" # unknown
+                          )
+
+region_colors <- c(
+  "#741A32", # maroon
+  "#B34232", # burnt orange
+  "#D38F35", #  orange
+  "#D4B95f", # khaki
+  "#4FA2A2", # teal
+  "#114F59" # dark teal
+)
+```
+
+
+```{r}
+# Initial database pulls
+
+# Database connection
+con <- dbConnect(RPostgres::Postgres(),
+                 dbname=Sys.getenv("DB_NAME"),
+                 host="localhost",
+                 port="5432",
+                 user=Sys.getenv("DB_USERNAME"),
+                 password=Sys.getenv("DB_PASSWORD"))
+
+# Check that connection is established by checking which tables are present
+dbListTables(con)
+
+# ARTIS dataframe
+custom_artis_query <- "SELECT * FROM snet WHERE 
+((hs_version = 'HS96' AND year >= 1996 AND year <= 2003) OR
+(hs_version = 'HS02' AND year >= 2004 AND year <= 2012) OR
+(hs_version = 'HS12' AND year >= 2013 AND year <= 2020))"
+
+artis <- dbGetQuery(con, custom_artis_query) %>%
+  select(-record_id)
+
+custom_consumption_query <- "SELECT * FROM complete_consumption WHERE 
+((hs_version = 'HS96' AND year >= 1996 AND year <= 2003) OR
+(hs_version = 'HS02' AND year >= 2004 AND year <= 2012) OR
+(hs_version = 'HS12' AND year >= 2013 AND year <= 2020))"
+
+# consumption dataframe
+consumption <- dbGetQuery(con, custom_consumption_query) %>%
+  select(-record_id) 
+
+# Production dataframe
+prod <- dbGetQuery(con, "SELECT * FROM production") %>%
+  select(-record_id) 
+
+# Product metadata dataframe
+product <- dbGetQuery(con, "SELECT * FROM products") %>%
+  select(-record_id) 
+
+# Species metadata
+sciname_metadata <- dbGetQuery(con, "SELECT * FROM sciname") %>%
+  select(-record_id)
+
+# Improved taxa resolution metadata
+sciname_hs_modified <- dbGetQuery(con, "SELECT * FROM code_max_resolved_taxa") %>%
+  select(-record_id)
+
+# Close database connection
+dbDisconnect(con)
+rm(list = c("con"))
+
+artis <- artis %>%
+  # Add variables for whether source/importer/exporter imposed sanctions following annexation of Crimea
+    mutate(sanctions_towards_russia = case_when(
+      importer_iso3c %in% c("USA", "AUT", "BEL", "BGR", "HRV", "CYP", "CZE", "DNK", "EST", "FIN", "FRA", "DEU", "GRC", "HUN", "IRL", "ITA", "LVA", "LTU", "LUX", "MLT", "NLD", "POL", "PRT", "ROM", "SVK", "SVN", "ESP", "SWE", "GBR", "JPN", "ALB", "ISL", "AUS", "MNT", "UKR", "CAN", "NOR", "CHE", "MDA")  ~ "Yes",
+      TRUE ~ "No"
+    )) %>%
+      mutate(exporter_sanctions_towards_russia = case_when(
+      exporter_iso3c %in% c("USA", "AUT", "BEL", "BGR", "HRV", "CYP", "CZE", "DNK", "EST", "FIN", "FRA", "DEU", "GRC", "HUN", "IRL", "ITA", "LVA", "LTU", "LUX", "MLT", "NLD", "POL", "PRT", "ROM", "SVK", "SVN", "ESP", "SWE", "GBR", "JPN", "ALB", "ISL", "AUS", "MNT", "UKR", "CAN", "NOR", "CHE", "MDA")  ~ "Yes",
+      TRUE ~ "No")) %>% 
+  left_join(sciname_metadata %>% 
+              select(sciname, common_name), 
+            by = "sciname") %>% 
+  mutate(source_sanctions_towards_russia = case_when(
+      source_country_iso3c %in% c("USA", "AUT", "BEL", "BGR", "HRV", "CYP", "CZE", "DNK", "EST", "FIN", "FRA", "DEU", "GRC", "HUN", "IRL", "ITA", "LVA", "LTU", "LUX", "MLT", "NLD", "POL", "PRT", "ROM", "SVK", "SVN", "ESP", "SWE", "GBR", "JPN", "ALB", "ISL", "AUS", "MNT", "UKR", "CAN", "NOR", "CHE", "MDA")  ~ "Yes",
+      TRUE ~ "No")) %>% 
+  # Join on common names
+  left_join(sciname_metadata %>% 
+              select(sciname, common_name), 
+            by = "sciname") 
+
+
+consumption <- consumption %>%
+  # Filter consumption to when Russia is involved
+  filter(source_country_iso3c == "RUS"|exporter_iso3c == "RUS"|consumer_iso3c == "RUS") %>%
+  # Add variables for whether source/importer/exporter imposed sanctions following annexation of Crimea
+    mutate(sanctions_towards_russia = case_when(
+      consumer_iso3c %in% c("USA", "AUT", "BEL", "BGR", "HRV", "CYP", "CZE", "DNK", "EST", "FIN", "FRA", "DEU", "GRC", "HUN", "IRL", "ITA", "LVA", "LTU", "LUX", "MLT", "NLD", 
+                            "POL", "PRT", "ROM", "SVK", "SVN", "ESP", "SWE", "GBR", "JPN", "ALB", "ISL", "AUS", "MNT", "UKR", "CAN", "NOR", "CHE", "MDA")  ~ "Russia unfriendly countries",
+      TRUE ~ "Russia friendly countries"
+    )) %>%
+      mutate(exporter_sanctions_towards_russia = case_when(
+      exporter_iso3c %in% c("USA", "AUT", "BEL", "BGR", "HRV", "CYP", "CZE", "DNK", "EST", "FIN", "FRA", "DEU", "GRC", "HUN", "IRL", "ITA", "LVA", "LTU", "LUX", "MLT", "NLD", "POL", "PRT", "ROM", "SVK", "SVN", "ESP", "SWE", "GBR", "JPN", "ALB", "ISL", "AUS", "MNT", "UKR", "CAN", "NOR", "CHE", "MDA")  ~ "Russia unfriendly countries",
+      TRUE ~ "Russia friendly countries")) %>%
+    mutate(source_sanctions_towards_russia = case_when(
+      source_country_iso3c %in% c("USA", "AUT", "BEL", "BGR", "HRV", "CYP", "CZE", "DNK", "EST", "FIN", "FRA", "DEU", "GRC", "HUN", "IRL", "ITA", "LVA", "LTU", "LUX", "MLT", "NLD", "POL", "PRT", "ROM", "SVK", "SVN", "ESP", "SWE", "GBR", "JPN", "ALB", "ISL", "AUS", "MNT", "UKR", "CAN", "NOR", "CHE", "MDA")  ~ "Russia unfriendly countries",
+      TRUE ~ "Russia friendly countries")) %>% 
+  # Add common names (for both sciname and sciname_hs_modified)
+    left_join(sciname_metadata %>% 
+              select(sciname, common_name), 
+            by = "sciname") %>%
+  left_join(sciname_metadata %>% 
+              select(sciname, "common_name_hs_modified" = "common_name"), 
+            by = c("sciname_hs_modified" = "sciname")) 
+
+```
+
+
+```{r}
+# Consumption of Russian products by sanctioning and non-sanctioning countries, colored by import path (direct vs indirect)
+# Fill version
+
+consumption_russian_ts <- consumption %>%
+  filter(consumer_iso3c != "RUS", 
+         source_country_iso3c == "RUS") %>%
+  mutate(path = case_when(
+    exporter_iso3c == "RUS" ~ "Direct import", 
+    TRUE ~ "Import from intermediate partner"
+  )) %>%
+  mutate(sanctions_towards_russia = case_when(
+    sanctions_towards_russia == "Russia friendly countries" ~ "Friendly countries' consumption\nof seafood from Russia",
+    TRUE ~ "Unfriendly countries' consumption\nof seafood from Russia"
+  )) %>% 
+  group_by(year, path, sanctions_towards_russia) %>%
+  summarise(consumption_live_t = sum(consumption_live_t)) %>%
+  ungroup()
+
+consumption_russian_ts_fill <- consumption_russian_ts %>%
+  ggplot(aes(x = year, y = consumption_live_t/1000000, fill = path)) +
+  geom_area() +
+  geom_vline(aes(xintercept = 2014), linetype = 2) +
+  scale_fill_manual(values = c("#D4B95f", # khaki
+                               "#4FA2A2" # teal
+  )) + 
+  labs(x = "", y = "Consumption (mil t, live weight)", fill = "") +
+  facet_wrap(~sanctions_towards_russia) +
+  theme_minimal() +
+  theme(
+    axis.title.y = element_text(size = 9),
+    legend.position = "top",
+    panel.spacing = unit(5, "mm")
+  )
+
+consumption_russian_ts_fill
+
+# Consumption of Russian products by sanctioning and non-sanctioning countries, colored by import path (direct vs indirect)
+# Line version
+consumption_russian_ts_line <- consumption %>%
+  filter(consumer_iso3c != "RUS", 
+         source_country_iso3c == "RUS") %>%
+  mutate(path = case_when(
+    exporter_iso3c == "RUS" ~ "Direct import", 
+    TRUE ~ "Import from intermediate partner"
+  )) %>% 
+  group_by(year, path, sanctions_towards_russia) %>%
+  summarise(consumption_live_t = sum(consumption_live_t)) %>%
+  ggplot(aes(x = year, y = consumption_live_t/1000000, color = path)) +
+  geom_line() +
+  geom_vline(aes(xintercept = 2014), linetype = 2) +
+  scale_color_manual(values = c("#D4B95f", # khaki
+                               "#4FA2A2" # teal
+  )) + 
+  labs(x = "", y = "Consumption of Russian seafood \n(mil t, live weight)", color = "") +
+  facet_wrap(~sanctions_towards_russia) +
+  theme_minimal() +
+  theme(
+    legend.position = "bottom",
+    panel.spacing = unit(5, "mm")
+  )
+
+consumption_russian_ts_line
+
+# Change in consumption stats
+# Change in total consumption of Russian products - imposed sanctions
+consumption_change <- consumption %>%
+  filter(sanctions_towards_russia == "Russia unfriendly countries", 
+         source_country_iso3c == "RUS") %>%
+  group_by(year) %>%
+  summarise(consumption_live_t = sum(consumption_live_t, na.rm = TRUE))
+
+q_pre <- consumption_change %>% filter(year %in% 2013:2014) %>% summarise(consumption_live_t = sum(consumption_live_t, na.rm = TRUE)) %>% pull(consumption_live_t)
+q_post <- consumption_change %>% filter(year %in% 2015:2016) %>% summarise(consumption_live_t = sum(consumption_live_t, na.rm = TRUE)) %>% pull(consumption_live_t)
+
+100*(q_post - q_pre)/q_pre
+
+# Change in consumption of Russian products via direct import - imposed sanctions
+consumption_change <- consumption %>%
+  filter(sanctions_towards_russia == "Russia unfriendly countries", 
+         exporter_iso3c == "RUS",
+         source_country_iso3c == "RUS") %>%
+  group_by(year) %>%
+  summarise(consumption_live_t = sum(consumption_live_t, na.rm = TRUE))
+
+q_pre <- consumption_change %>% filter(year %in% 2013:2014) %>% summarise(consumption_live_t = sum(consumption_live_t, na.rm = TRUE)) %>% pull(consumption_live_t)
+q_post <- consumption_change %>% filter(year %in% 2015:2016) %>% summarise(consumption_live_t = sum(consumption_live_t, na.rm = TRUE)) %>% pull(consumption_live_t)
+
+100*(q_post - q_pre)/q_pre
+
+# Change in consumption of Russian products via indirect import - imposed sanctions
+consumption_change <- consumption %>%
+  filter(sanctions_towards_russia == "Russia unfriendly countries", 
+         exporter_iso3c != "RUS",
+         source_country_iso3c == "RUS") %>%
+  group_by(year) %>%
+  summarise(consumption_live_t = sum(consumption_live_t, na.rm = TRUE))
+
+q_pre <- consumption_change %>% filter(year %in% 2013:2014) %>% summarise(consumption_live_t = sum(consumption_live_t, na.rm = TRUE)) %>% pull(consumption_live_t)
+q_post <- consumption_change %>% filter(year %in% 2015:2016) %>% summarise(consumption_live_t = sum(consumption_live_t, na.rm = TRUE)) %>% pull(consumption_live_t)
+
+paste("Change in consumption of Russian products via indirect import - imposed sanctions")
+100*(q_post - q_pre)/q_pre 
+
+# Change in total consumption of Russian products  - didn't impose sanctions
+consumption_change <- consumption %>%
+  filter(sanctions_towards_russia == "Russia friendly countries", 
+         source_country_iso3c == "RUS") %>%
+  group_by(year) %>%
+  summarise(consumption_live_t = sum(consumption_live_t, na.rm = TRUE))
+
+q_pre <- consumption_change %>% filter(year %in% 2013:2014) %>% summarise(consumption_live_t = sum(consumption_live_t, na.rm = TRUE)) %>% pull(consumption_live_t)
+q_post <- consumption_change %>% filter(year %in% 2015:2016) %>% summarise(consumption_live_t = sum(consumption_live_t, na.rm = TRUE)) %>% pull(consumption_live_t)
+
+paste("Change in total consumption of Russian products  - didn't impose sanctions")
+100*(q_post - q_pre)/q_pre
+
+```
+
+
+```{r}
+# Russian consumption of seafood products from sanctioning and non-sanctioning countries, colored by import path (direct vs indirect)
+
+# Fill version
+consumption_by_russia_ts <- consumption %>%
+  filter(consumer_iso3c == "RUS", 
+         source_country_iso3c != "RUS") %>%
+  mutate(path = case_when(
+    source_country_iso3c == exporter_iso3c ~ "Direct import", 
+    TRUE ~ "Import from intermediate partner"
+  )) %>% 
+  mutate(source_sanctions_towards_russia = case_when(
+    source_sanctions_towards_russia == "Russia friendly countries" ~ "Russian consumption of seafood\nfrom friendly countries",
+    TRUE ~ "Russian consumption of seafood\nfrom unfriendly countries"
+  )) %>%
+  group_by(year, path, source_sanctions_towards_russia) %>%
+  summarise(consumption_live_t = sum(consumption_live_t)) %>%
+  ungroup()
+
+consumption_by_russia_ts_fill <- consumption_by_russia_ts %>%
+  ggplot(aes(x = year, y = consumption_live_t/1000000, fill = path)) +
+  geom_area() +
+  geom_vline(aes(xintercept = 2014), linetype = 2) +
+  scale_fill_manual(values = c("#D4B95f", # khaki
+                               "#4FA2A2" # teal
+  )) + 
+  labs(x = "", y = "Consumption (mil t, live weight)", fill = "") +
+  facet_wrap(~source_sanctions_towards_russia) +
+  theme_minimal() +
+  theme(
+    axis.title.y = element_text(size = 9),
+    legend.position = "top",
+    panel.spacing = unit(5, "mm")
+  )
+
+consumption_by_russia_ts_fill
+
+# Russian consumption of seafood products from sanctioning and non-sanctioning countries, colored by import path (direct vs indirect)
+# Line version
+consumption_by_russia_ts_line <- consumption %>%
+  filter(consumer_iso3c == "RUS", 
+         source_country_iso3c != "RUS") %>%
+  mutate(path = case_when(
+    source_country_iso3c == exporter_iso3c ~ "Direct import", 
+    TRUE ~ "Import from intermediate partner"
+  )) %>% 
+  group_by(year, path, source_sanctions_towards_russia) %>%
+  summarise(consumption_live_t = sum(consumption_live_t)) %>%
+  ggplot(aes(x = year, y = consumption_live_t/1000000, color = path)) +
+  geom_line() +
+  geom_vline(aes(xintercept = 2014), linetype = 2) +
+  scale_color_manual(values = c("#D4B95f", # khaki
+                               "#4FA2A2" # teal
+  )) + 
+  labs(x = "", y = "Russian consumption of foreign seafood \n(mil t, live weight)", color = "") +
+  facet_wrap(~source_sanctions_towards_russia) +
+  theme_minimal() +
+  theme(
+    legend.position = "bottom",
+    panel.spacing = unit(5, "mm")
+  )
+
+consumption_by_russia_ts_line
+
+
+# Change in Russia's consumption from countries imposing sanctions
+consumption_change <- consumption %>%
+  filter(source_sanctions_towards_russia == "Russia unfriendly countries", # FIXIT
+         consumer_iso3c == "RUS") %>%
+  group_by(year) %>%
+  summarise(consumption_live_t = sum(consumption_live_t, na.rm = TRUE))
+
+q_pre <- consumption_change %>% filter(year %in% 2013:2014) %>% summarise(consumption_live_t = sum(consumption_live_t, na.rm = TRUE)) %>% pull(consumption_live_t)
+q_post <- consumption_change %>% filter(year %in% 2015:2016) %>% summarise(consumption_live_t = sum(consumption_live_t, na.rm = TRUE)) %>% pull(consumption_live_t)
+
+paste("Change in Russia's consumption from countries imposing sanctions")
+100*(q_post - q_pre)/q_pre
+
+# Change in Russia's consumption from countries imposing sanctions - direct imports
+consumption_change <- consumption %>%
+  filter(source_sanctions_towards_russia == "Russia unfriendly countries", 
+         source_country_iso3c == exporter_iso3c,
+         consumer_iso3c == "RUS") %>%
+  group_by(year) %>%
+  summarise(consumption_live_t = sum(consumption_live_t, na.rm = TRUE))
+
+q_pre <- consumption_change %>% filter(year %in% 2013:2014) %>% summarise(consumption_live_t = sum(consumption_live_t, na.rm = TRUE)) %>% pull(consumption_live_t)
+q_post <- consumption_change %>% filter(year %in% 2015:2016) %>% summarise(consumption_live_t = sum(consumption_live_t, na.rm = TRUE)) %>% pull(consumption_live_t)
+
+paste("Change in Russia's consumption from countries imposing sanctions - direct imports")
+100*(q_post - q_pre)/q_pre
+
+```
+```{r, fig.height=6}
+# Join plots
+ggarrange(consumption_russian_ts_fill, consumption_by_russia_ts_fill, 
+          common.legend = TRUE, ncol = 1, legend = "bottom")
+
+ggsave("fig1.png", device = "png", width = 6.5, height = 5, unit = "in")
+
+ggarrange(consumption_russian_ts_line, consumption_by_russia_ts_line, 
+          common.legend = TRUE, ncol = 1)
+```
+
+
+```{r}
+# Sankey diagram of flows of Russian products into the US
+rus_us_sankey <- consumption %>%
+  filter(consumer_iso3c == "USA", source_country_iso3c == "RUS", year %in% 2015:2019) %>%
+  rename("importer_iso3c" = "consumer_iso3c",
+         "live_weight_t" = "consumption_live_t") %>%
+  plot_sankey(prop_flow_cutoff = 0.01)
+  
+ggexport(rus_us_sankey, filename = "rus_us_sankey.png", width = 800, height = 400)
+
+# Top species US consumes sourced from Russia
+species_rank <- consumption %>%
+  filter(consumer_iso3c == "USA", source_country_iso3c == "RUS", year %in% 2015:2019) %>%
+  mutate(path = case_when(
+    exporter_iso3c == "RUS" ~ "Direct import", 
+    TRUE ~ "Import from\nintermediate partner"
+  )) %>% 
+  rename("importer_iso3c" = "consumer_iso3c",
+         "live_weight_t" = "consumption_live_t") %>%
+  mutate(common_name_hs_modified = case_when(
+    common_name_hs_modified == "alaska pollock(=walleye poll.)" ~ "Alaska Pollock",
+    common_name_hs_modified == "atlantic cod" ~ "Atlantic Cod",
+    common_name_hs_modified == "pink(=humpback) salmon" ~ "Pink Salmon",
+    common_name_hs_modified == "haddock" ~ "Haddock",
+    common_name_hs_modified == "pacific cod" ~ "Pacific Cod",
+    TRUE ~ common_name_hs_modified
+  )) %>%
+  mutate(common_name_hs_modified = gsub(" ", "\n", common_name_hs_modified)) %>%
+  plot_bar(bar_group = "common_name_hs_modified", fill_type = "path", top_n = 5) + 
+  theme(
+    legend.position = "bottom",
+    axis.text.y = element_text(angle = 90),
+    
+  ) +
+  labs(y = "", x = "Consumption (live weight tonnes)", fill = "")
+
+ggexport(species_rank, filename = "US_species_rank.png")
+
+# Stats for paper
+# Percent by exporter
+consumption %>%
+  filter(consumer_iso3c == "USA", source_country_iso3c == "RUS", year %in% 2015:2019) %>% 
+  group_by(exporter_iso3c) %>% 
+  summarise(consumption_live_t = sum(consumption_live_t, na.rm = TRUE)) %>% 
+  ungroup() %>%
+  mutate(percent = 100*consumption_live_t/sum(consumption_live_t)) %>%
+  arrange(desc(percent))
+
+# Percent by species
+consumption %>%
+  filter(consumer_iso3c == "USA", source_country_iso3c == "RUS", year %in% 2015:2019) %>% 
+  group_by(common_name_hs_modified) %>% 
+  summarise(consumption_live_t = sum(consumption_live_t, na.rm = TRUE)) %>% 
+  ungroup() %>%
+  mutate(percent = 100*consumption_live_t/sum(consumption_live_t)) %>%
+  arrange(desc(percent))
+
+# FIXIT:Pull out stats from these data frames to print the one for the paper 
+
+```
+
+
+```{r}
+rus_to_chn <- artis %>%
+  # Isolating Chinese imports that were originally caught in Russia
+  filter(source_country_iso3c == "RUS", importer_iso3c == "CHN") %>%
+  group_by(year, sciname) %>%
+  summarise(russia_live_t = sum(live_weight_t, na.rm = TRUE))
+
+notrus_to_chn <- artis %>%
+  # Isolating Chinese imports that were NOT originally caught in Russia
+  filter(source_country_iso3c != "RUS", importer_iso3c == "CHN") %>%
+  group_by(year, sciname) %>%
+  summarise(notrussia_live_t = sum(live_weight_t, na.rm = TRUE))
+
+chn_to_usa <- artis %>%
+  filter(exporter_iso3c == "CHN", importer_iso3c == "USA") %>%
+  group_by(year, sciname) %>%
+  summarise(live_weight_t = sum(live_weight_t, na.rm = TRUE)) %>%
+  left_join(rus_to_chn, by = c("year", "sciname")) %>%
+  left_join(notrus_to_chn, by = c("year", "sciname")) %>%
+  replace_na(list(russia_live_t = 0, notrussia_live_t = 0)) %>% 
+  # Calculate the minimum by year and species that had to come from Russia
+  mutate(min_russia = case_when(
+    # If non-Russian product exceeds the volume sent to the US, 
+    # then min that had to be Russian is 0
+    (notrussia_live_t >= live_weight_t) ~ 0,
+    # If non-Russian product cannot explain all, then fill up remaining with Russian product
+    (live_weight_t - notrussia_live_t) >= russia_live_t ~ russia_live_t,
+    # Otherwise fill up remaining with Russian product
+    TRUE ~ (live_weight_t - notrussia_live_t)
+  )) %>% 
+  # Calculate the max that could have come from Russia
+  mutate(max_russia = case_when(
+    # If Russian product can explain full amount, max is total trade flow
+    russia_live_t >= live_weight_t ~ live_weight_t, 
+    # If Russian product cannont explain all, fill up with Russian product to get max
+    russia_live_t < live_weight_t ~ russia_live_t
+  ))
+
+# Stats
+chn_to_usa %>% 
+  filter(year == 2020, 
+         sciname %in% c("gadus chalcogrammus", "gadus morhua", "oncorhynchus gorbuscha", "gadus macrocephalus"))
+
+consumption %>%
+  filter(consumer_iso3c == "USA", source_country_iso3c == "RUS", year %in% 2015:2019) %>%
+  group_by(sciname_hs_modified) %>% 
+  summarise(consumption_live_t = sum(consumption_live_t)) %>% 
+  arrange(desc(consumption_live_t)) %>%
+  ungroup() %>%
+  mutate(percent = 100*consumption_live_t/sum(consumption_live_t)) %>%
+  mutate(cum_percent = cumsum(percent))
+
+```
+
+```{r}
+rus_chn_usa <- artis %>%
+  filter(source_country_iso3c == "RUS", exporter_iso3c == "CHN", importer_iso3c == "USA") %>%
+  group_by(year, sciname) %>%
+  summarise(live_weight_t = sum(live_weight_t, na.rm = TRUE)) %>%
+  ungroup() %>%
+  left_join(chn_to_usa %>%
+            select(year, sciname, min_russia, max_russia)) %>%
+  mutate(live_weight_t = live_weight_t / 1e3,
+         min_russia = min_russia / 1e3,
+         max_russia = max_russia / 1e3)
+
+p1 <- rus_chn_usa %>% 
+  filter(sciname == "gadus chalcogrammus",
+         year > 1996) %>%
+  ggplot(aes(x = year)) +
+  geom_ribbon(aes(ymin = min_russia, ymax = max_russia), fill = "#86ADA7", alpha = 0.5) +
+  geom_line(aes(y = live_weight_t)) +
+  xlim(1997, 2020) +
+  scale_y_continuous(position = "right") +
+  labs(x = "", y = "tonnes, live weight") +#, title = "US imports of Russian Alaska pollock via China") +
+  theme_bw() +
+  theme(
+    axis.title.y = element_blank(),
+    axis.text.x = element_blank(),
+    plot.margin = margin(l = 2, b = -2, unit = "mm")
+  )
+
+p2 <- rus_chn_usa %>%
+  filter(year > 1996,
+         sciname == "gadus morhua") %>%
+  left_join(chn_to_usa %>%
+              select(year, sciname, min_russia, max_russia)) %>% 
+  ggplot(aes(x = year)) +
+  geom_ribbon(aes(ymin = min_russia, ymax = max_russia), fill = "#86ADA7", alpha = 0.5) +
+  geom_line(aes(y = live_weight_t)) +
+  scale_y_continuous(position = "right") +
+  xlim(1997, 2020) +
+  labs(x = "", y = "tonnes, live weight") +#, title = "US imports of Russian Atlantic cod via China") +
+  theme_bw() +
+  theme(
+    axis.title.y = element_blank(),
+    axis.text.x = element_blank(),
+    plot.margin = margin(r = 2, l = 2, b = -2, unit = "mm")
+  )
+
+p3 <- rus_chn_usa %>%
+  filter(sciname == "oncorhynchus gorbuscha",
+         year > 1996) %>%
+  ggplot(aes(x = year)) +
+  geom_ribbon(aes(ymin = min_russia, ymax = max_russia), fill = "#86ADA7", alpha = 0.5) +
+  geom_line(aes(y = live_weight_t)) +
+  scale_y_continuous(position = "right") +
+  xlim(1997, 2020) +
+  labs(x = "", y = "tonnes, live weight") +#, title = "US imports of Russian pink salmon via China") +
+  theme_bw() +
+  theme(
+    axis.title.y = element_blank(),
+    axis.text.x = element_blank(),
+    plot.margin = margin(r = 2, l = 2, b = -2, unit = "mm")
+  )
+
+p4 <- rus_chn_usa %>%
+  filter(sciname == "melanogrammus aeglefinus",
+         year > 1996) %>%
+  ggplot(aes(x = year)) +
+  geom_ribbon(aes(ymin = min_russia, ymax = max_russia), fill = "#86ADA7", alpha = 0.5) +
+  geom_line(aes(y = live_weight_t)) +
+  scale_y_continuous(position = "right") +
+  xlim(1997, 2020) +
+  labs(x = "", y = "tonnes, live weight") +#, title = "US imports of Russian haddock via China") +
+  theme_bw() +
+  theme(
+    axis.title.y = element_blank(),
+    axis.text.x = element_blank(),
+    plot.margin = margin(l = 2, b = -2, r = 1.5, unit = "mm")
+  )
+
+p5 <- rus_chn_usa %>%
+  filter(sciname == "gadus macrocephalus",
+         year > 1996) %>%
+  ggplot(aes(x = year)) +
+  geom_ribbon(aes(ymin = min_russia, ymax = max_russia), fill = "#86ADA7", alpha = 0.5) +
+  geom_line(aes(y = live_weight_t)) +
+  scale_y_continuous(position = "right") +
+  xlim(1997, 2020) +
+  labs(x = "", y = "tonnes, live weight") +#, title = "US imports of Russian Pacific cod via China") +
+  theme_bw() +
+  theme(
+    axis.title.y = element_blank(),
+    axis.text.x = element_text(size = 7),
+    plot.margin = margin(t = -1, r = 2, l = 2, b = -2, unit = "mm")
+  )
+
+
+p_joined <- ggarrange(p1, p2, p3, p4, p5, ncol = 1)
+
+ggexport(p_joined, filename = "US_species_import_range.png")
+
+# Top species US consumes sourced from Russia
+species_rank_df <- consumption %>%
+  filter(consumer_iso3c == "USA", source_country_iso3c == "RUS", year %in% 2015:2019) %>%
+  mutate(path = case_when(
+    exporter_iso3c == "RUS" ~ "Direct\nimport", 
+    TRUE ~ "Import from\nintermediate partner"
+  )) %>% 
+  rename("importer_iso3c" = "consumer_iso3c",
+         "live_weight_t" = "consumption_live_t") %>%
+  mutate(common_name_hs_modified = case_when(
+    common_name_hs_modified == "alaska pollock(=walleye poll.)" ~ "Alaska Pollock",
+    common_name_hs_modified == "atlantic cod" ~ "Atlantic Cod",
+    common_name_hs_modified == "pink(=humpback) salmon" ~ "Pink Salmon",
+    common_name_hs_modified == "haddock" ~ "Haddock",
+    common_name_hs_modified == "pacific cod" ~ "Pacific Cod",
+    TRUE ~ common_name_hs_modified
+  )) %>%
+  mutate(common_name_hs_modified = gsub(" ", "\n", common_name_hs_modified)) %>%
+  mutate(live_weight_t = live_weight_t / length(2015:2019)) %>%
+  mutate(live_weight_t = live_weight_t / 1e3)
+
+species_rank_1 <- species_rank_df %>%
+  filter(common_name_hs_modified == "Alaska\nPollock") %>%
+  mutate(dom_source == "") %>%
+  plot_bar(bar_group = "common_name_hs_modified", fill_type = "path", top_n = 5) +
+  xlim(0, 90) +
+  theme(
+    legend.position = "none",
+    axis.text.x = element_blank(),
+    axis.text.y = element_text(angle = 90, hjust = 0.5),
+    plot.margin = margin(b = -2, unit = "mm")
+  ) +
+  labs(y = "", x = "", fill = "")
+
+species_rank_2 <- species_rank_df %>%
+  filter(common_name_hs_modified == "Atlantic\nCod") %>%
+  plot_bar(bar_group = "common_name_hs_modified", fill_type = "path", top_n = 5) + 
+  xlim(0, 90) +
+  theme(
+    legend.position = "none",
+    axis.text.x = element_blank(),
+    axis.text.y = element_text(angle = 90, hjust = 0.5),
+    plot.margin = margin(b = -2, unit = "mm")
+  ) +
+  labs(y = "", x = "", fill = "")
+
+species_rank_3 <- species_rank_df %>%
+  filter(common_name_hs_modified == "Pink\nSalmon") %>%
+  plot_bar(bar_group = "common_name_hs_modified", fill_type = "path", top_n = 5) + 
+  xlim(0, 90) +
+  theme(
+    legend.position = "none",
+    axis.text.x = element_blank(),
+    axis.text.y = element_text(angle = 90, hjust = 0.5),
+    plot.margin = margin(b = -2, unit = "mm")
+  ) +
+  labs(y = "", x = "", fill = "")
+
+species_rank_4 <- species_rank_df %>%
+  filter(common_name_hs_modified == "Haddock") %>%
+  mutate(common_name_hs_modified = paste("\n", common_name_hs_modified, sep = "")) %>%
+  plot_bar(bar_group = "common_name_hs_modified", fill_type = "path", top_n = 5) + 
+  xlim(0, 90) +
+  theme(
+    legend.position = "none",
+    axis.text.x = element_blank(),
+    axis.text.y = element_text(angle = 90, hjust = 0.5),
+    plot.margin = margin(b = -2, unit = "mm")
+  ) +
+  labs(y = "", x = "", fill = "")
+
+species_rank_5 <- species_rank_df %>%
+  filter(common_name_hs_modified == "Pacific\nCod") %>%
+  plot_bar(bar_group = "common_name_hs_modified", fill_type = "path", top_n = 5) + 
+  xlim(0, 90) +
+  theme(
+    legend.position = "bottom",
+    axis.text.y = element_text(angle = 90, hjust = 0.5),
+    axis.text.x = element_text(size = 7),
+    axis.title.x = element_text(size = 7, hjust = 1),
+    legend.key.height = unit(3, "mm"),
+    legend.key.width = unit(3, "mm"),
+    plot.margin = margin(t = -2, b = -1, unit = "mm")
+  ) +
+  labs(y = "", x = "Avg. Consumption (1000 t) 2015-2019", fill = "")
+
+species_legend <- get_legend(species_rank_5)
+
+# Format Figure 2 together
+fig2 <- ggarrange(
+  species_rank_1, p1,
+  species_rank_2, p2,
+  species_rank_3, p3,
+  species_rank_4, p4,
+  species_rank_5, p5,
+  ncol = 2, nrow = 5,
+  widths = c(1, 2),
+  heights = c(1, 1, 1, 1, 1),
+  legend.grob = species_legend,
+  # common.legend = TRUE,
+  legend = "bottom"
+  )
+
+fig2
+
+fig2 <- annotate_figure(
+  fig2,
+  right = text_grob("US Imports of Russian Species (1000 t, live weight)", rot = 270)
+  )
+
+fig2 <- ggarrange(
+  rus_us_sankey,
+  fig2,
+  nrow = 2,
+  heights = c(1, 2)
+)
+
+fig2
+
+ggsave("fig2.png", device = "png", width = 6.5, height = 6)
+```
+
+```{r}
+# Explore spike in China's apparent consumption of Russian products
+tmp <- consumption %>% 
+  filter(source_country_iso3c == "RUS", consumer_iso3c != "RUS") %>%
+  group_by(year, consumer_iso3c) %>% 
+  summarise(consumption_live_t = sum(consumption_live_t, na.rm = TRUE))
+
+consumption %>% 
+  filter(source_country_iso3c == "RUS", consumer_iso3c == "CHN") %>%
+  group_by(year) %>% 
+  summarise(consumption_live_t = sum(consumption_live_t, na.rm = TRUE)) %>%
+  ggplot(aes(x = year, y = consumption_live_t)) +
+  geom_line() + 
+  theme_bw()
+
+tmp <- consumption %>% 
+  filter(source_country_iso3c == "RUS", consumer_iso3c == "CHN") %>%
+  group_by(year, sciname_hs_modified) %>% 
+  summarise(consumption_live_t = sum(consumption_live_t, na.rm = TRUE))
+
+prod %>% 
+  filter(iso3c == "RUS", sciname == "gadus chalcogrammus") %>%
+  group_by(year) %>%
+  summarise(live_weight_t = sum(live_weight_t)) %>%
+  ggplot(aes(x = year, y = live_weight_t)) +
+  geom_line() +
+  theme_bw()
+
+artis %>% 
+  filter(exporter_iso3c == "RUS", importer_iso3c == "CHN") %>%
+  plot_ts(artis_var = "hs6", plot.type = "filled", prop_flow_cutoff = 0.07)
+
+artis %>% 
+  filter(source_country_iso3c == "RUS", exporter_iso3c == "CHN") %>%
+  group_by(year) %>%
+  summarise(live_weight_t = sum(live_weight_t, na.rm = TRUE)) %>%
+  ggplot(aes(year, live_weight_t)) +
+  geom_line() +
+  theme_bw()
+
+artis %>% 
+  filter(source_country_iso3c == "RUS", exporter_iso3c == "CHN") %>%
+  plot_ts(artis_var = "importer_iso3c", plot.type = "filled") 
+
+
+artis %>% 
+  filter(hs6 %in% c(30379, 30380, 303429, 30499, 30510, 30520, 
+                    30530, 30549, 30569, 51191, 1400410, 140420,
+                    160419, 160430), exporter_iso3c == "CHN") %>%
+  plot_ts(artis_var = "hs6", plot.type = "filled") 
+
+  
+```
+
