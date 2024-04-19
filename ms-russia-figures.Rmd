@@ -96,7 +96,7 @@ consumption_by_russia_ts_fill
 ggarrange(consumption_russian_ts_fill, consumption_by_russia_ts_fill, 
           common.legend = TRUE, ncol = 1, legend = "bottom")
 
-ggsave(file.path(figdir, "fig1.png"), device = "png", width = 6.5, height = 5, unit = "in")
+ggsave(file.path(figdir, "fig1.png"), device = "png", width = 6.5, height = 5, unit = "in", dpi = 500)
 ```
 
 ```{r fig2_rus_us_sankey}
@@ -114,6 +114,7 @@ ggexport(rus_us_sankey, filename = file.path(figdir, "rus_us_sankey.png"), width
 
 ```{r}
 rus_chn_usa <- read.csv(file.path(datadir, "rus_chn_usa.csv"))
+chn_to_usa <- read.csv(file.path(datadir, "chn_to_usa.csv"))
 
 p1 <- rus_chn_usa %>% 
   filter(sciname == "gadus chalcogrammus",
@@ -301,7 +302,7 @@ fig2 <- ggarrange(
 
 fig2
 
-ggsave(file.path(figdir, "fig2.png"), device = "png", width = 6.6, height = 6)
+ggsave(file.path(figdir, "fig2.png"), device = "png", width = 6.6, height = 6, dpi = 500)
 ```
 
 
