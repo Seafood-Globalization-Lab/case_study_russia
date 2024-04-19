@@ -69,6 +69,7 @@ top_intermediates <- intermediate_partners %>%
 
 colnames(top_intermediates) <- c("Intermediate Exporter", "Consumption (live weight tonnes)", "Percent (%)")
 ```
+
 ### Top Intermediate Exporters for Russian sourced products to the US (2015-2019)
 `r reactable(top_intermediates)`
 
@@ -98,7 +99,8 @@ We show that in recent years (2015-2019), `r signif(top_intermediate_partner_per
 
 ```{r unfriendly_countries_consumption}
 unfriendly_rus_consumption <- consumption %>%
-  filter(sanctions_towards_russia == "Russia unfriendly countries" &
+  filter(consumer_iso3c != "RUS" &
+           sanctions_towards_russia == "Russia unfriendly countries" &
            ((year %in% 2013:2014) | (year %in% 2015:2016))) %>%
   mutate(period = case_when(
     year %in% 2013:2014 ~ "before_sanctions",
@@ -122,15 +124,17 @@ unfriendly_consumption_percent_change = 100 * ((unfriendly_consumption_post - un
 Analyzing consumption of Russian-caught seafood following the 2014 round of sanctions, we find that countries that imposed sanctions (“unfriendly countries”) initially moderately reduced total consumption of Russian seafood (`r signif(unfriendly_consumption_percent_change, digits = 3)`%) in 2015–2016 compared to 2013-2014.
 
 ```{r friendly_countries_consumption}
+# Look at 2014 drop in consumption of Russian products by friendly countries
 friendly_rus_consumption <- consumption %>%
-  filter(sanctions_towards_russia == "Russia friendly countries" &
-           ((year %in% 2013:2014) | (year %in% 2015:2016))) %>%
+  filter(consumer_iso3c != "RUS" & 
+           sanctions_towards_russia == "Russia friendly countries" &
+           ((year %in% 2012:2013) | (year %in% 2014))) %>%
   mutate(period = case_when(
-    year %in% 2013:2014 ~ "before_sanctions",
+    year %in% 2012:2013 ~ "before_sanctions",
     TRUE ~ "after_sanctions"
   )) %>%
   group_by(sanctions_towards_russia, period) %>%
-  summarize(consumption_live_t = sum(consumption_live_t, na.rm = TRUE)) %>%
+  summarize(consumption_live_t = sum(consumption_live_t, na.rm = TRUE)/length(unique(year))) %>%
   ungroup()
 
 friendly_consumption_pre <- friendly_rus_consumption %>%
@@ -142,9 +146,20 @@ friendly_consumption_post <- friendly_rus_consumption %>%
   pull(consumption_live_t)
 
 friendly_consumption_percent_change = 100 * ((friendly_consumption_post - friendly_consumption_pre) / friendly_consumption_pre)
+
+# Friendly country consumption of Russian products following 2014
+friendly_consumption_2020 <- consumption %>%
+  filter(consumer_iso3c != "RUS" & 
+           sanctions_towards_russia == "Russia friendly countries" &
+           year == 2020) %>%
+  group_by(year) %>%
+  summarize(consumption_live_t = sum(consumption_live_t, na.rm = TRUE)) %>%
+  pull(consumption_live_t)
+
+friendly_consumption_percent_change_2020 = 100 * ((friendly_consumption_2020 - friendly_consumption_pre) / friendly_consumption_pre)
 ```
 
-Countries which did not impose sanctions (“friendly countries”) also increased consumption of Russian products (`r signif(friendly_consumption_percent_change, digits = 3)`% in 2015–2016 compared to 2013–2014).
+Countries which did not impose sanctions (“friendly countries”) decreased consumption of Russian products (`r signif(friendly_consumption_percent_change, digits = 3)`% in 2014 compared to 2012–2013), but their consumption quickly rebounded, exceeding `r floor(friendly_consumption_percent_change_2020)`% of the pre-2014 value in 2020.
 
 ```{r consumption_by_russia}
 

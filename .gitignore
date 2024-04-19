@@ -10,5 +10,8 @@
 *.csv
 *.Rproj
 *.tex
+*.zip
 data/
 figures/
+archive/
+
