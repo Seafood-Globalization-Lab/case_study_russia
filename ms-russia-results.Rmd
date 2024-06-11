@@ -19,9 +19,21 @@ datadir <- "data"
 ```
 
 ```{r load_data}
-consumption <- read.csv(file.path(datadir, "case_study_consumption.csv"))
-consumption_by_rus <- read.csv(file.path(datadir, "fig1_consumption_by_russia.csv"))
+consumption <- read.csv(file.path(datadir, "case_study_consumption.csv")) %>%
+  mutate(sciname_hs_modified = case_when(
+    is.na(sciname_hs_modified) ~ sciname,
+    TRUE ~ sciname_hs_modified
+  ))
+
+consumption_by_rus <- read.csv(file.path(datadir, "fig1_consumption_by_russia.csv")) 
+
 rus_chn_usa <- read.csv(file.path(datadir, "rus_chn_usa.csv"))
+
+us_consumption <- read.csv(file.path(datadir, "case_study_usa_consumption.csv")) %>%
+  mutate(sciname_hs_modified = case_when(
+    is.na(sciname_hs_modified) ~ sciname,
+    TRUE ~ sciname_hs_modified
+  ))
 ```
 
 ```{r rus_imports_change}
@@ -242,7 +254,7 @@ top_rus_to_us_species_percent <- sum(top_rus_to_us_species$percent)
 The top five species were `r top_rus_to_us_species[1,]$common_name_hs_modified` (`r top_rus_to_us_species[1,]$sciname_hs_modified`), `r top_rus_to_us_species[2,]$common_name_hs_modified` (`r top_rus_to_us_species[2,]$sciname_hs_modified`), `r top_rus_to_us_species[3,]$common_name_hs_modified` (`r top_rus_to_us_species[3,]$sciname_hs_modified`),  `r top_rus_to_us_species[4,]$common_name_hs_modified` (`r top_rus_to_us_species[4,]$sciname_hs_modified`), and `r top_rus_to_us_species[5,]$common_name_hs_modified` (`r top_rus_to_us_species[5,]$sciname_hs_modified`), which collectively made up `r signif(top_rus_to_us_species_percent, digits = 3)`% of US consumption of Russian products.
 
 ```{r consumption_minimums_2020}
-
+# Min value from Russia
 alaska_pollock_min <- rus_chn_usa %>%
   filter(year == 2020 &
            sciname == "gadus chalcogrammus") %>%
@@ -252,8 +264,91 @@ pink_salmon_min <- rus_chn_usa %>%
   filter(year == 2020 &
            sciname == "oncorhynchus gorbuscha") %>%
   pull(min_russia)
+
+# Max value from Russia
+alaska_pollock_max <- rus_chn_usa %>%
+  filter(year == 2020 &
+           sciname == "gadus chalcogrammus") %>%
+  pull(max_russia)
+
+pink_salmon_max <- rus_chn_usa %>%
+  filter(year == 2020 &
+           sciname == "oncorhynchus gorbuscha") %>%
+  pull(max_russia)
+
+us_total_pollock_consumption <- us_consumption %>%
+  filter(sciname == "gadus chalcogrammus") %>%
+  # Min/max flow values are in 1000 tonnes
+  summarise(consumption_live_t = sum(consumption_live_t) / 1e3) %>%
+  pull(consumption_live_t)
+
+us_imported_pollock_consumption <- us_consumption %>%
+  filter(sciname == "gadus chalcogrammus",
+         !is.na(exporter_iso3c)) %>%
+  # Min/max flow values are in 1000 tonnes
+  summarise(consumption_live_t = sum(consumption_live_t) / 1e3) %>%
+  pull(consumption_live_t)
+
+us_imported_salmon_consumption <- us_consumption %>%
+  filter(sciname == "oncorhynchus gorbuscha",
+         !is.na(exporter_iso3c)) %>%
+  # Min/max flow values are in 1000 tonnes
+  summarise(consumption_live_t = sum(consumption_live_t) / 1e3) %>%
+  pull(consumption_live_t)
+
+us_russian_pollock_consumption <- us_consumption %>%
+  filter(sciname == "gadus chalcogrammus",
+         !is.na(exporter_iso3c),
+         source_country_iso3c == "RUS") %>%
+  # Min/max flow values are in 1000 tonnes
+  summarise(consumption_live_t = sum(consumption_live_t) / 1e3) %>%
+  pull(consumption_live_t)
+
+
+us_russian_salmon_consumption <- us_consumption %>%
+  filter(sciname == "oncorhynchus gorbuscha",
+         !is.na(exporter_iso3c),
+         source_country_iso3c == "RUS") %>%
+  # Min/max flow values are in 1000 tonnes
+  summarise(consumption_live_t = sum(consumption_live_t) / 1e3) %>%
+  pull(consumption_live_t)
+
+us_consumption %>%
+  filter(consumer_iso3c == "USA", 
+         sciname_hs_modified %in% c("oncorhynchus gorbuscha", "gadus chalcogrammus")) %>%
+  mutate(consumption_source = case_when(
+    (source_country_iso3c == consumer_iso3c & is.na(exporter_iso3c)) ~ "domestic",
+    (source_country_iso3c == consumer_iso3c & !is.na(exporter_iso3c)) ~ "domestic, foreign processed",
+    (source_country_iso3c != consumer_iso3c) ~ "foreign"
+  )) %>%
+  group_by(sciname_hs_modified, consumption_source) %>%
+  summarise(consumption_live_t = sum(consumption_live_t)) %>%
+  group_by(sciname_hs_modified) %>%
+  mutate(percent = 100*consumption_live_t/sum(consumption_live_t))
+
+# tmp <- us_consumption %>%
+#   filter(consumer_iso3c == "USA", 
+#          sciname_hs_modified %in% c("oncorhynchus gorbuscha", "gadus chalcogrammus")) %>%
+#   group_by(sciname_hs_modified, source_country_iso3c) %>%
+#   summarise(consumption_live_t = sum(consumption_live_t)) %>%
+#   group_by(sciname_hs_modified) %>%
+#   mutate(percent = 100*consumption_live_t/sum(consumption_live_t))
+
+us_consumption %>%
+  filter(consumer_iso3c == "USA", 
+         sciname_hs_modified == "oncorhynchus gorbuscha") %>%
+  mutate(exporter_iso3c = case_when(
+    is.na(exporter_iso3c) ~ source_country_iso3c,
+    TRUE ~ exporter_iso3c
+  )) %>%
+  plot_sankey(cols = c("source_country_iso3c", 
+                       "exporter_iso3c", 
+                       "consumer_iso3c"),
+              value = "consumption_live_t")
+
 ```
 
 While US imports of Atlantic cod from China could technically be explained without Russian-sourced products, we estimate that the US imported at least `r signif(alaska_pollock_min, digits = 3)` thousand and `r signif(pink_salmon_min, digits = 3)` thousand tonnes of Russian-sourced Alaska pollock and pink salmon, respectively, via China in 2020.
 
 
+Based on these ranges, we estimate `r signif(100*alaska_pollock_min/us_imported_pollock_consumption, digits = 3)`-`r min(signif(100*alaska_pollock_max/us_imported_pollock_consumption, digits = 3), 100)`% of imported Alaska pollock and `r signif(100*pink_salmon_min/us_imported_salmon_consumption, digits = 3)`-`r min(signif(100*pink_salmon_max/us_imported_salmon_consumption, digits = 3), 100)`% of imported pink salmon is Russian-harvested. 

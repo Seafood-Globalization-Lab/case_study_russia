@@ -51,20 +51,21 @@ consumption <- read.csv(file.path(datadir, "case_study_consumption.csv"))
 consumption_russian_ts <- read.csv(file.path(datadir, "fig1_consumption_from_russia.csv"))
 
 consumption_russian_ts_fill <- consumption_russian_ts %>%
-  ggplot(aes(x = year, y = consumption_live_t/1000000, fill = path)) +
-  geom_area() +
+  ggplot() +
+  geom_area(aes(x = year, y = consumption_live_t/1000000, fill = path)) +
   geom_vline(aes(xintercept = 2014), linetype = 2) +
   scale_fill_manual(values = c("#D4B95f", # khaki
                                "#4FA2A2" # teal
   )) + 
   labs(x = "", y = "Consumption (mil t, live weight)", fill = "") +
-  facet_wrap(~sanctions_towards_russia) +
+  facet_wrap(~sanctions_towards_russia,
+             labeller = labeller(group = c(a = "A", b = "B"))) +
   theme_minimal() +
   theme(
     axis.title.y = element_text(size = 9),
     legend.position = "top",
     panel.spacing = unit(5, "mm")
-  )
+  ) 
 
 consumption_russian_ts_fill
 ```
@@ -206,6 +207,9 @@ species_rank_1 <- species_rank_df %>%
   filter(common_name_hs_modified == "Alaska\nPollock") %>%
   mutate(dom_source == "") %>%
   plot_bar(bar_group = "common_name_hs_modified", fill_type = "path", top_n = 5) +
+  scale_fill_manual(values = c("#D4B95f", # khaki
+                               "#4FA2A2" # teal
+  )) + 
   xlim(0, 90) +
   theme(
     legend.position = "none",
@@ -218,6 +222,9 @@ species_rank_1 <- species_rank_df %>%
 species_rank_2 <- species_rank_df %>%
   filter(common_name_hs_modified == "Atlantic\nCod") %>%
   plot_bar(bar_group = "common_name_hs_modified", fill_type = "path", top_n = 5) + 
+  scale_fill_manual(values = c("#D4B95f", # khaki
+                               "#4FA2A2" # teal
+  )) + 
   xlim(0, 90) +
   theme(
     legend.position = "none",
@@ -230,6 +237,9 @@ species_rank_2 <- species_rank_df %>%
 species_rank_3 <- species_rank_df %>%
   filter(common_name_hs_modified == "Pink\nSalmon") %>%
   plot_bar(bar_group = "common_name_hs_modified", fill_type = "path", top_n = 5) + 
+  scale_fill_manual(values = c("#D4B95f", # khaki
+                               "#4FA2A2" # teal
+  )) + 
   xlim(0, 90) +
   theme(
     legend.position = "none",
@@ -243,6 +253,9 @@ species_rank_4 <- species_rank_df %>%
   filter(common_name_hs_modified == "Haddock") %>%
   mutate(common_name_hs_modified = paste("\n", common_name_hs_modified, sep = "")) %>%
   plot_bar(bar_group = "common_name_hs_modified", fill_type = "path", top_n = 5) + 
+  scale_fill_manual(values = c("#D4B95f", # khaki
+                               "#4FA2A2" # teal
+  )) + 
   xlim(0, 90) +
   theme(
     legend.position = "none",
@@ -255,6 +268,9 @@ species_rank_4 <- species_rank_df %>%
 species_rank_5 <- species_rank_df %>%
   filter(common_name_hs_modified == "Pacific\nCod") %>%
   plot_bar(bar_group = "common_name_hs_modified", fill_type = "path", top_n = 5) + 
+  scale_fill_manual(values = c("#D4B95f", # khaki
+                               "#4FA2A2" # teal
+  )) + 
   xlim(0, 90) +
   theme(
     legend.position = "bottom",
@@ -297,7 +313,8 @@ fig2 <- ggarrange(
   rus_us_sankey,
   fig2,
   nrow = 2,
-  heights = c(1, 2)
+  heights = c(1, 2),
+  labels = c("a", "b")
 )
 
 fig2

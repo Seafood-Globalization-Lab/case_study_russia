@@ -89,7 +89,13 @@ artis <- artis %>%
               select(sciname, common_name), 
             by = "sciname") 
 
+# Filter to USA for consumption data
+consumption_usa <- consumption %>%
+  filter(consumer_iso3c == "USA")
 
+write.csv(consumption_usa, file.path(outdir, "case_study_usa_consumption.csv"), row.names = FALSE)
+
+# Filter consumption to flows involving Russia
 consumption <- consumption %>%
   # Filter consumption to when Russia is involved
   filter(source_country_iso3c == "RUS"|exporter_iso3c == "RUS"|consumer_iso3c == "RUS") %>%
