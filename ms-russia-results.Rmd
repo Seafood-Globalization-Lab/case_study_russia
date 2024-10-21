@@ -199,6 +199,55 @@ rus_of_unfriendly_post <- rus_of_unfriendly %>%
   pull(consumption_live_t)
 
 rus_of_unfriendly_percent_change <- 100 * ((rus_of_unfriendly_post - rus_of_unfriendly_pre) / rus_of_unfriendly_pre)
+
+# All consumption
+consumption_by_rus_total <- consumption %>%
+  filter(consumer_iso3c == "RUS", 
+         source_country_iso3c != "RUS",
+         ((year %in% 2013:2014) | (year %in% 2015:2016))) %>%
+  mutate(period = case_when(
+    year %in% 2013:2014 ~ "before_sanctions",
+    TRUE ~ "after_sanctions"
+  )) %>%
+  group_by(period) %>%
+  summarise(consumption_live_t = sum(consumption_live_t)) %>%
+  ungroup()
+
+rus_of_total_pre <- consumption_by_rus_total %>%
+  filter(period == "before_sanctions") %>%
+  pull(consumption_live_t)
+
+rus_of_total_post <- consumption_by_rus_total %>%
+  filter(period == "after_sanctions") %>%
+  pull(consumption_live_t)
+
+rus_total_percent_change <- 100 * ((rus_of_total_post - rus_of_total_pre) / rus_of_total_pre)
+
+# Consumption from friendly countries
+consumption_by_rus_friendly <- consumption %>%
+  filter(consumer_iso3c == "RUS", 
+         source_country_iso3c != "RUS",
+         ((year %in% 2015) | (year %in% 2019))) %>%
+  mutate(period = case_when(
+    year %in% 2015 ~ "at_sanctions",
+    TRUE ~ "after_sanctions"
+  )) %>%
+  group_by(source_sanctions_towards_russia, period) %>%
+  summarise(consumption_live_t = sum(consumption_live_t)) %>%
+  ungroup()
+
+rus_of_friendly <- consumption_by_rus_friendly %>%
+  filter(source_sanctions_towards_russia == "Russia friendly countries")
+
+rus_of_friendly_pre <- rus_of_friendly %>%
+  filter(period == "at_sanctions") %>%
+  pull(consumption_live_t)
+
+rus_of_friendly_post <- rus_of_friendly %>%
+  filter(period == "after_sanctions") %>%
+  pull(consumption_live_t)
+
+rus_of_friendly_percent_change <- 100 * ((rus_of_friendly_post - rus_of_friendly_pre) / rus_of_friendly_pre)
 ```
 
 ### Consumption By Russia
